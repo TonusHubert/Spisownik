@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="Współdzielony mobilny spis produktów." />
+    <title>Spisownik</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div><p class="eyebrow">Mobilna weryfikacja</p><h1>Spisownik</h1></div>
+      <div class="header-actions">
+        <button class="icon-button hidden" id="remindersButton" type="button" aria-label="Spisy oczekujące na flagi"><span>!</span><b id="reminderBadge">0</b></button>
+        <button class="icon-button hidden" id="adminButton" type="button" aria-label="Panel administratora">A</button>
+        <button class="icon-button hidden" id="settingsButton" type="button" aria-label="Ustawienia">⚙</button>
+        <button class="icon-button" id="themeButton" type="button" aria-label="Zmień motyw">◐</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="auth-card panel" id="authView">
+        <p class="eyebrow">Konto użytkownika</p>
+        <h2 id="authTitle">Zaloguj się</h2>
+        <form id="authForm">
+          <div class="field hidden" id="displayNameField"><label for="displayName">Imię i nazwisko</label><input id="displayName" maxlength="80" /></div>
+          <div class="field"><label for="email">E-mail</label><input id="email" type="email" autocomplete="email" required /></div>
+          <div class="field"><label for="password">Hasło</label><input id="password" type="password" autocomplete="current-password" minlength="6" required /></div>
+          <button class="primary-button wide" type="submit" id="authSubmit">Zaloguj się</button>
+          <button class="text-button" type="button" id="authModeButton">Nie masz konta? Zarejestruj się</button>
+          <p class="form-error" id="authError"></p>
+        </form>
+        <p class="config-warning hidden" id="configWarning">Najpierw uzupełnij dane projektu Supabase w pliku <code>config.js</code>.</p>
+      </section>
+
+      <div class="hidden" id="appView">
+        <section class="offline-banner hidden" id="offlineBanner">Brak internetu. Wyświetlasz ostatnio zapisane dane tylko do odczytu.</section>
+        <section class="session-card">
+          <div class="two-columns session-fields">
+            <div><label for="storeSelect">Sklep</label><select id="storeSelect"></select></div>
+            <div><label for="sessionName">Nazwa spisu</label><input id="sessionName" maxlength="80" /></div>
+          </div>
+          <div class="session-footer">
+            <p class="saved-status" id="savedStatus">Połączono z Supabase.</p>
+            <button class="ghost-button compact" id="newSessionButton" type="button">Nowy spis</button>
+          </div>
+        </section>
+
+        <section class="empty-state hidden" id="noStoresState">
+          <h3>Nie masz jeszcze dostępu do sklepu</h3>
+          <p>Otwórz ustawienia, wybierz sklep z listy i wyślij prośbę o przypisanie.</p>
+        </section>
+
+        <div id="inventoryView">
+          <section class="stats-grid">
+            <article class="stat-card"><span>Pozycje</span><strong id="itemsStat">0</strong></article>
+            <article class="stat-card"><span>Sztuki</span><strong id="quantityStat">0</strong></article>
+            <article class="stat-card accent"><span>Wartość</span><strong id="valueStat">0,00 zł</strong></article>
+          </section>
+          <section class="panel add-panel" id="addPanel">
+            <div class="section-heading"><div><p class="eyebrow">Szybkie dodawanie</p><h2 id="formTitle">Dodaj produkt</h2></div><button class="scan-button" id="scanButton" type="button">Skanuj EAN</button></div>
+            <form id="productForm" autocomplete="off">
+              <input id="editingId" type="hidden" />
+              <div class="field"><label for="ean">Kod EAN / DAN</label><div class="input-with-action"><input id="ean" maxlength="32" required /><button id="lookupButton" type="button">⌕</button></div><p class="field-note" id="lookupStatus"></p></div>
+              <div class="field"><label for="name">Nazwa produktu</label><input id="name" maxlength="120" required /></div>
+              <div class="field"><label for="category">Kategoria</label><select id="category" required></select></div>
+              <div class="two-columns">
+                <div class="field"><label for="quantity">Ilość</label><input id="quantity" type="number" min="1" value="1" required /></div>
+                <div class="field"><label for="price">Cena za sztukę</label><input id="price" inputmode="decimal" required /></div>
+              </div>
+              <div class="form-actions"><button class="primary-button" type="submit" id="submitButton">Dodaj do spisu</button><button class="ghost-button hidden" id="cancelEditButton" type="button">Anuluj</button></div>
+              <p class="form-error" id="formError"></p>
+            </form>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Bieżący spis</p><h2>Produkty</h2></div><button class="ghost-button compact" id="exportCsvButton" type="button">Eksport CSV</button></div>
+            <div class="toolbar"><input id="searchInput" type="search" placeholder="Szukaj po nazwie lub kodzie" /><select id="categoryFilter"></select><select id="sortSelect"><option value="newest">Najnowsze</option><option value="total-desc">Wartość: malejąco</option><option value="name-asc">Nazwa: A–Z</option></select></div>
+            <div class="product-list" id="productList"></div>
+            <div class="empty-state" id="emptyState"><h3>Spis jest jeszcze pusty</h3><p>Dodaj lub zeskanuj pierwszy produkt.</p></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <dialog id="settingsDialog">
+      <div class="scanner-header"><div><p class="eyebrow">Konto i konfiguracja</p><h2>Ustawienia</h2></div><button class="icon-button" data-close="settingsDialog">×</button></div>
+      <p id="profileSummary"></p>
+      <section class="settings-section"><h3>Sklepy</h3><div class="session-list" id="storeSettings"></div></section>
+      <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="newCategoryName" maxlength="80" placeholder="Nazwa nowej kategorii" /><button class="ghost-button" id="requestCategoryButton">Zgłoś</button></div><div class="session-list" id="categorySettings"></div></section>
+      <section class="settings-section"><h3>Historia spisów</h3><div class="session-list" id="sessionSettings"></div></section>
+      <section class="settings-section"><h3>Dane lokalne</h3><p id="migrationText">Możesz jednorazowo przenieść dane ze starszej wersji zapisane na tym urządzeniu.</p><div class="form-actions"><button class="ghost-button" id="migrateButton">Importuj dane lokalne</button><button class="ghost-button" id="exportBackupButton">Eksport JSON</button></div></section>
+      <button class="danger-button wide" id="logoutButton">Wyloguj się</button>
+    </dialog>
+
+    <dialog id="adminDialog">
+      <div class="scanner-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
+      <section class="settings-section"><h3>Dodaj sklep</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" /><button class="primary-button" id="adminAddStore">Dodaj</button></div></section>
+      <section class="settings-section"><h3>Prośby o przypisanie</h3><div class="session-list" id="membershipRequests"></div></section>
+      <section class="settings-section"><h3>Zmiany kategorii</h3><div class="session-list" id="categoryRequests"></div></section>
+    </dialog>
+
+    <dialog id="remindersDialog">
+      <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Potwierdź flagi</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
+      <p>Te spisy przekroczyły okres archiwum. Potwierdź dopiero, gdy flagi produktów zostały nadane w kolektorze.</p>
+      <div class="session-list" id="reminderList"></div>
+      <button class="ghost-button wide" data-close="remindersDialog">Przypomnij później</button>
+    </dialog>
+
+    <dialog id="scannerDialog"><div class="scanner-header"><h2>Zeskanuj kod</h2><button class="icon-button" id="closeScannerButton">×</button></div><div class="scanner-frame"><video id="scannerVideo" playsinline muted></video><div class="scan-line"></div></div><p id="scannerMessage">Umieść kod kreskowy wewnątrz ramki.</p></dialog>
+    <div class="toast" id="toast"></div>
+    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><button class="edit-button">Edytuj</button><button class="delete-button">Usuń</button></div></article></template>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="vendor/zxing-browser.min.js" defer></script>
+    <script src="config.js" defer></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>
