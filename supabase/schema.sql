@@ -115,7 +115,7 @@ returns boolean language sql stable security definer set search_path = public
 as $$ select exists (
   select 1 from store_memberships
   where store_id = target_store and user_id = auth.uid() and status = 'approved'
-) $$;
+) or is_admin() $$;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public

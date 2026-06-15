@@ -42,7 +42,9 @@ function emptyState() {
 }
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
-function approvedStoreIds() { return new Set(state.memberships.filter((m) => m.status === "approved").map((m) => m.store_id)); }
+function approvedStoreIds() {
+  return new Set(isAdmin() ? state.stores.map((store) => store.id) : state.memberships.filter((membership) => membership.status === "approved").map((membership) => membership.store_id));
+}
 function activeInventory() { return state.inventories.find((x) => x.id === activeInventoryId); }
 function activeItems() { return state.items.filter((x) => x.inventory_id === activeInventoryId); }
 function categoryName(id) { return state.categories.find((x) => x.id === id)?.name || "Inne"; }

@@ -4,6 +4,13 @@ alter table public.inventory_items drop constraint if exists inventory_items_inv
 create unique index if not exists inventory_items_active_ean
   on public.inventory_items (inventory_id, ean) where deleted_at is null;
 
+create or replace function public.is_approved_member(target_store uuid)
+returns boolean language sql stable security definer set search_path = public
+as $$ select exists (
+  select 1 from store_memberships
+  where store_id = target_store and user_id = auth.uid() and status = 'approved'
+) or is_admin() $$;
+
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$
 begin
