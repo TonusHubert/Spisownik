@@ -1,5 +1,5 @@
-const CACHE_NAME = "spisownik-v6";
-const APP_FILES = ["./", "./index.html", "./styles.css", "./app.js?v=6", "./config.js", "./manifest.webmanifest", "./icon.svg", "./vendor/zxing-browser.min.js", "./vendor/supabase.min.js"];
+const CACHE_NAME = "spisownik-v7";
+const APP_FILES = ["./", "./index.html", "./styles.css", "./app.js?v=7", "./config.js", "./manifest.webmanifest", "./icon.svg", "./vendor/zxing-browser.min.js", "./vendor/supabase.min.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_FILES)));

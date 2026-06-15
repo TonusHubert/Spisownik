@@ -9,7 +9,7 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 - akceptowanie członkostw przez administratora,
 - wspólne spisy, globalny katalog produktów i ceny osobne dla sklepów,
 - propozycje zmian kategorii zatwierdzane przez administratora,
-- okres archiwum ustawiany dla sklepu i usuwanie spisu po potwierdzeniu flag,
+- ręczne kończenie spisów, archiwum oraz oznaczanie flag przy każdej pozycji,
 - codzienne przypomnienie wewnątrz aplikacji,
 - lokalny cache danych do odczytu bez internetu,
 - jednorazowy import danych z wersji lokalnej oraz eksport JSON i CSV.
@@ -36,16 +36,6 @@ window.SPISOWNIK_CONFIG = {
 ```
 
 Klucz `anon` jest przeznaczony do użycia w przeglądarce. Bezpieczeństwo danych zapewniają polityki RLS z migracji SQL. Nigdy nie umieszczaj w aplikacji klucza `service_role`.
-
-5. Włącz rozszerzenie `pg_cron` w Supabase i zaplanuj codzienne oznaczanie przeterminowanych spisów:
-
-```sql
-select cron.schedule(
-  'mark-expired-inventories',
-  '5 0 * * *',
-  'select public.mark_expired_inventories()'
-);
-```
 
 ## Uruchomienie lokalne
 

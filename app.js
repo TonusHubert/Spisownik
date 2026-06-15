@@ -13,15 +13,17 @@ const el = {
   authModeButton: $("#authModeButton"), authError: $("#authError"), displayNameField: $("#displayNameField"), displayName: $("#displayName"),
   email: $("#email"), password: $("#password"), configWarning: $("#configWarning"), settingsButton: $("#settingsButton"),
   adminButton: $("#adminButton"), remindersButton: $("#remindersButton"), reminderBadge: $("#reminderBadge"), settingsDialog: $("#settingsDialog"),
-  adminDialog: $("#adminDialog"), remindersDialog: $("#remindersDialog"), storeSelect: $("#storeSelect"), sessionName: $("#sessionName"),
+  adminDialog: $("#adminDialog"), remindersDialog: $("#remindersDialog"), storeSelect: $("#storeSelect"), storeSearch: $("#storeSearch"), sessionName: $("#sessionName"),
   savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), inventoryView: $("#inventoryView"),
   itemsStat: $("#itemsStat"), quantityStat: $("#quantityStat"), valueStat: $("#valueStat"), productForm: $("#productForm"),
   editingId: $("#editingId"), ean: $("#ean"), name: $("#name"), category: $("#category"), quantity: $("#quantity"), price: $("#price"),
   formError: $("#formError"), submitButton: $("#submitButton"), cancelEditButton: $("#cancelEditButton"), formTitle: $("#formTitle"),
   lookupStatus: $("#lookupStatus"), searchInput: $("#searchInput"), categoryFilter: $("#categoryFilter"), sortSelect: $("#sortSelect"),
   productList: $("#productList"), productTemplate: $("#productTemplate"), emptyState: $("#emptyState"), storeSettings: $("#storeSettings"),
-  categorySettings: $("#categorySettings"), sessionSettings: $("#sessionSettings"), profileSummary: $("#profileSummary"),
+  categorySettings: $("#categorySettings"), sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
   membershipRequests: $("#membershipRequests"), categoryRequests: $("#categoryRequests"), reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"),
+  storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
+  archiveStatus: $("#archiveStatus"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"), newSessionButton: $("#newSessionButton"),
   toast: $("#toast"), scannerDialog: $("#scannerDialog"), scannerVideo: $("#scannerVideo"), scannerMessage: $("#scannerMessage"),
 };
 
@@ -50,6 +52,11 @@ function activeInventory() { return state.inventories.find((x) => x.id === activ
 function activeItems() { return state.items.filter((x) => x.inventory_id === activeInventoryId); }
 function categoryName(id) { return state.categories.find((x) => x.id === id)?.name || "Inne"; }
 function storeName(id) { return state.stores.find((x) => x.id === id)?.name || "Nieznany sklep"; }
+function storeNumber(name) { return Number(String(name).match(/^\s*(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER); }
+function compareStores(a, b) { return storeNumber(a.name) - storeNumber(b.name) || a.name.localeCompare(b.name, "pl", { numeric: true }); }
+function storeMatches(store, value) { return store.name.toLocaleLowerCase("pl").includes(value.trim().toLocaleLowerCase("pl")); }
+function archiveDeadline(inventory) { const store = state.stores.find((x) => x.id === inventory.store_id); return new Date(new Date(inventory.archived_at).getTime() + (store?.retention_days || 0) * 86400000); }
+function missingFlags(inventoryId) { return state.items.filter((x) => x.inventory_id === inventoryId && !x.flag_assigned).length; }
 function money(value) { return new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" }).format(Number(value) || 0); }
 function date(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date(value)); }
 function defaultInventoryName() { return `Spis ${new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date())}`; }
@@ -179,6 +186,7 @@ function applyOperation(operation) {
     if (value.deleted_at) state.items = state.items.filter((item) => item.id !== value.id);
     else upsertLocal(state.items, value);
   }
+  if (operation.type === "flag_update") upsertLocal(state.items, value);
 }
 function applyPending(operations) { operations.forEach(applyOperation); }
 
@@ -188,8 +196,9 @@ async function syncPending() {
   const operations = await readQueue();
   pendingCount = operations.length;
   for (const operation of operations) {
-    const rpc = operation.type === "inventory_upsert" ? "sync_inventory" : "sync_inventory_item";
-    const { error } = await db.rpc(rpc, { payload: operation.payload });
+    const rpc = operation.type === "inventory_upsert" ? "sync_inventory" : operation.type === "flag_update" ? "set_inventory_item_flag" : "sync_inventory_item";
+    const args = operation.type === "flag_update" ? { target_item: operation.payload.id, assigned: operation.payload.flag_assigned } : { payload: operation.payload };
+    const { error } = await db.rpc(rpc, args);
     if (error) {
       syncError = error.message;
       syncing = false;
@@ -209,8 +218,9 @@ async function syncPending() {
 function chooseActive() {
   const allowed = approvedStoreIds();
   if (!allowed.has(activeStoreId)) activeStoreId = [...allowed][0] || null;
+  if (state.inventories.some((x) => x.id === activeInventoryId && x.store_id === activeStoreId)) return;
   const storeInventories = state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "active");
-  if (!storeInventories.some((x) => x.id === activeInventoryId)) activeInventoryId = storeInventories.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.id || null;
+  activeInventoryId = storeInventories.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))[0]?.id || null;
 }
 
 function renderAll() {
@@ -226,8 +236,9 @@ function renderAll() {
 }
 
 function renderStores() {
-  const approved = state.stores.filter((s) => approvedStoreIds().has(s.id));
-  el.storeSelect.replaceChildren(...approved.map((s) => new Option(s.name, s.id)));
+  const approved = state.stores.filter((s) => approvedStoreIds().has(s.id)).sort(compareStores);
+  const filtered = approved.filter((s) => storeMatches(s, el.storeSearch.value));
+  el.storeSelect.replaceChildren(...filtered.map((s) => new Option(s.name, s.id)));
   el.storeSelect.value = activeStoreId || "";
   el.noStoresState.classList.toggle("hidden", approved.length > 0);
   el.inventoryView.classList.toggle("hidden", approved.length === 0);
@@ -245,8 +256,17 @@ function renderCategories() {
 
 function renderInventory() {
   const inventory = activeInventory();
+  const archived = inventory?.status === "archived";
   el.sessionName.value = inventory?.name || "";
-  el.sessionName.disabled = !inventory;
+  el.sessionName.disabled = !inventory || archived;
+  el.addPanel.classList.toggle("hidden", archived);
+  el.archiveBanner.classList.toggle("hidden", !archived);
+  el.finishSessionButton.classList.toggle("hidden", !inventory || archived);
+  if (archived) {
+    const missing = missingFlags(inventory.id), deadline = archiveDeadline(inventory), expired = deadline <= new Date();
+    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · koniec archiwum ${date(deadline)}`;
+    el.deleteArchiveButton.classList.toggle("hidden", !expired || missing > 0);
+  } else el.deleteArchiveButton.classList.add("hidden");
   const queryText = el.searchInput.value.trim().toLocaleLowerCase("pl");
   let products = activeItems().filter((x) => `${x.name} ${x.ean}`.toLocaleLowerCase("pl").includes(queryText))
     .filter((x) => !el.categoryFilter.value || x.category_id === el.categoryFilter.value);
@@ -262,6 +282,13 @@ function renderInventory() {
     node.querySelector(".product-total").textContent = money(product.quantity * product.price);
     node.querySelector(".edit-button").onclick = () => editProduct(product);
     node.querySelector(".delete-button").onclick = () => deleteProduct(product);
+    node.querySelector(".edit-button").classList.toggle("hidden", archived);
+    node.querySelector(".delete-button").classList.toggle("hidden", archived);
+    const flag = node.querySelector(".flag-check");
+    flag.classList.toggle("hidden", !archived);
+    const checkbox = node.querySelector(".flag-checkbox");
+    checkbox.checked = Boolean(product.flag_assigned);
+    checkbox.onchange = () => setProductFlag(product, checkbox.checked);
     el.productList.append(node);
   }
   const items = activeItems();
@@ -284,7 +311,7 @@ function row(title, detail, actions = []) {
 
 function renderSettings() {
   el.storeSettings.replaceChildren();
-  for (const store of state.stores) {
+  for (const store of state.stores.filter((x) => storeMatches(x, el.storeSettingsSearch.value)).sort(compareStores)) {
     const membership = state.memberships.find((m) => m.store_id === store.id);
     const status = membership?.status;
     const actions = [];
@@ -298,20 +325,25 @@ function renderSettings() {
     el.categorySettings.append(row(category.name, category.is_fallback ? "Kategoria chroniona" : "Kategoria globalna", actions));
   }
   el.sessionSettings.replaceChildren();
-  for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))) {
-    el.sessionSettings.append(row(inventory.name, `${date(inventory.created_at)} · ${inventory.status === "awaiting_flags" ? "oczekuje na flagi" : "aktywny"}`, inventory.status === "active" ? [["Otwórz", () => { activeInventoryId = inventory.id; renderAll(); el.settingsDialog.close(); }]] : []));
+  for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "active").sort((a, b) => new Date(b.created_at) - new Date(a.created_at))) {
+    el.sessionSettings.append(row(inventory.name, `${date(inventory.created_at)} · aktywny`, [["Otwórz", () => openInventory(inventory.id)]]));
+  }
+  el.archiveSettings.replaceChildren();
+  for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived").sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at))) {
+    const missing = missingFlags(inventory.id);
+    el.archiveSettings.append(row(inventory.name, `${date(inventory.archived_at)} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, [["Otwórz", () => openInventory(inventory.id)]]));
   }
 }
 
 function renderReminders() {
-  const awaiting = state.inventories.filter((x) => x.status === "awaiting_flags");
+  const awaiting = state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
   el.reminderBadge.textContent = awaiting.length;
   el.remindersButton.classList.toggle("has-badge", awaiting.length > 0);
-  el.reminderList.replaceChildren(...awaiting.map((x) => row(x.name, `${storeName(x.store_id)} · utworzono ${date(x.created_at)}`, [["Flagi zostały nadane", () => confirmFlags(x.id)]])));
+  el.reminderList.replaceChildren(...awaiting.map((x) => row(x.name, `${missingFlags(x.id)} pozycji bez flagi · archiwum do ${date(archiveDeadline(x))}`, [["Otwórz", () => { openInventory(x.id); el.remindersDialog.close(); }]])));
 }
 
 function renderAdmin() {
-  el.adminStoreList.replaceChildren(...state.stores.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((store) => {
+  el.adminStoreList.replaceChildren(...state.stores.filter((x) => storeMatches(x, el.adminStoreSearch.value)).sort(compareStores).map((store) => {
     const wrapper = document.createElement("form"); wrapper.className = "admin-store-row";
     wrapper.innerHTML = `<input name="name" maxlength="80" required /><input name="retention" type="number" min="1" max="365" required aria-label="Dni archiwum" /><button class="ghost-button compact" type="submit">Zapisz</button><button class="danger-button compact" type="button">Usuń</button>`;
     wrapper.elements.name.value = store.name; wrapper.elements.retention.value = store.retention_days;
@@ -377,6 +409,29 @@ async function adminEditStore(event, store) {
 }
 async function adminDeleteStore(store) { if (!requireOnline() || !confirm(`Trwale usunąć sklep „${store.name}” i wszystkie jego dane?`)) return; const { error } = await db.from("stores").delete().eq("id", store.id); if (error) return report(error); await loadData(); }
 
+function openInventory(id) { activeInventoryId = id; renderAll(); if (el.settingsDialog.open) el.settingsDialog.close(); }
+async function finishInventory() {
+  const inventory = activeInventory();
+  if (!inventory || inventory.status !== "active" || !requireOnline()) return;
+  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
+  if (!confirm("Zakończyć spis? Po przeniesieniu do archiwum nie będzie można edytować jego pozycji.")) return;
+  const { error } = await db.rpc("archive_inventory", { target_inventory: inventory.id });
+  if (error) return report(error);
+  showToast("Spis został przeniesiony do archiwum."); await loadData();
+}
+async function setProductFlag(product, assigned) {
+  const changed = { ...product, flag_assigned: assigned, updated_at: now() };
+  upsertLocal(state.items, changed); renderAll();
+  await enqueue("flag_update", changed);
+}
+async function deleteArchivedInventory() {
+  const inventory = activeInventory();
+  if (!inventory || !requireOnline() || !confirm("Trwale usunąć ten spis z archiwum? Tej operacji nie można cofnąć.")) return;
+  const { error } = await db.rpc("delete_archived_inventory", { target_inventory: inventory.id });
+  if (error) return report(error);
+  activeInventoryId = null; showToast("Spis został trwale usunięty."); await loadData();
+}
+
 async function newInventory() {
   if (!activeStoreId) return;
   const timestamp = now();
@@ -385,7 +440,7 @@ async function newInventory() {
   await enqueue("inventory_upsert", inventory);
 }
 async function renameInventory() {
-  const inventory = activeInventory(); if (!inventory) return;
+  const inventory = activeInventory(); if (!inventory || inventory.status !== "active") return;
   const changed = { ...inventory, name: el.sessionName.value.trim() || defaultInventoryName(), updated_at: now() };
   upsertLocal(state.inventories, changed); renderAll();
   await enqueue("inventory_upsert", changed);
@@ -401,7 +456,7 @@ async function deleteProduct(product) {
 }
 
 async function submitProduct(event) {
-  event.preventDefault(); if (!activeInventoryId) return;
+  event.preventDefault(); if (!activeInventoryId || activeInventory()?.status !== "active") return;
   const quantity = Number(el.quantity.value), price = Number(el.price.value.replace(",", "."));
   const product = { ean: el.ean.value.trim(), name: el.name.value.trim(), category_id: el.category.value, quantity, price };
   if (!product.ean || !product.name || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(price) || price < 0) return el.formError.textContent = "Uzupełnij poprawnie wszystkie pola.";
@@ -438,13 +493,12 @@ async function resolveEan() {
   }
 }
 
-async function confirmFlags(id) { if (!requireOnline() || !confirm("Czy flagi na produkty zostały nadane? Potwierdzenie trwale usunie spis.")) return; const { error } = await db.rpc("confirm_inventory_flags", { target_inventory: id }); if (error) return report(error); showToast("Potwierdzono flagi i usunięto spis."); await loadData(); }
 async function maybeShowDailyReminder() {
-  if (!online() || !state.inventories.some((x) => x.status === "awaiting_flags")) return;
+  if (!online() || !activeStoreId || !state.inventories.some((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id))) return;
   const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await db.from("reminder_views").select("reminder_date").eq("user_id", user.id).eq("reminder_date", today);
+  const { data, error } = await db.from("reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today);
   if (error || data.length) return;
-  const saved = await db.from("reminder_views").insert({ user_id: user.id, reminder_date: today });
+  const saved = await db.from("reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today });
   if (!saved.error && !el.remindersDialog.open) el.remindersDialog.showModal();
 }
 
@@ -483,8 +537,9 @@ function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.s
 
 el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
-el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; chooseActive(); renderAll(); };
-el.sessionName.onchange = renameInventory; $("#newSessionButton").onclick = newInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
+el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; chooseActive(); renderAll(); maybeShowDailyReminder(); };
+el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
+el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 $("#requestCategoryButton").onclick = async () => { const value = $("#newCategoryName").value.trim(); if (!value) return; $("#newCategoryName").value = ""; const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single(); if (error) return report(error); if (isAdmin()) { const result = await db.rpc("review_category_request", { target_request: data.id, approve: true }); if (result.error) return report(result.error); } else showToast("Zmiana czeka na zatwierdzenie."); await loadData(); };
 $("#adminAddStore").onclick = async () => {

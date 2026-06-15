@@ -39,12 +39,12 @@
         <section class="offline-banner hidden" id="offlineBanner">Brak internetu. Zmiany zostaną zsynchronizowane po odzyskaniu połączenia.</section>
         <section class="session-card">
           <div class="two-columns session-fields">
-            <div><label for="storeSelect">Sklep</label><select id="storeSelect"></select></div>
+            <div><label for="storeSelect">Sklep</label><div class="search-field"><span>⌕</span><input id="storeSearch" type="search" placeholder="Szukaj sklepu po numerze lub nazwie" /></div><select id="storeSelect"></select></div>
             <div><label for="sessionName">Nazwa spisu</label><input id="sessionName" maxlength="80" /></div>
           </div>
           <div class="session-footer">
             <div class="sync-status"><p class="saved-status" id="savedStatus">Połączono z Supabase.</p><button class="text-button compact" id="syncButton" type="button">Synchronizuj</button></div>
-            <button class="ghost-button compact" id="newSessionButton" type="button">Nowy spis</button>
+            <div class="form-actions"><button class="ghost-button compact" id="finishSessionButton" type="button">Zakończ spis</button><button class="ghost-button compact" id="newSessionButton" type="button">Nowy spis</button></div>
           </div>
         </section>
 
@@ -59,6 +59,7 @@
             <article class="stat-card"><span>Sztuki</span><strong id="quantityStat">0</strong></article>
             <article class="stat-card accent"><span>Wartość</span><strong id="valueStat">0,00 zł</strong></article>
           </section>
+          <section class="archive-banner hidden" id="archiveBanner"><strong>Spis archiwalny</strong><span id="archiveStatus"></span><button class="danger-button compact hidden" id="deleteArchiveButton" type="button">Trwale usuń</button></section>
           <section class="panel add-panel" id="addPanel">
             <div class="section-heading"><div><p class="eyebrow">Szybkie dodawanie</p><h2 id="formTitle">Dodaj produkt</h2></div><button class="scan-button" id="scanButton" type="button">Skanuj EAN</button></div>
             <form id="productForm" autocomplete="off">
@@ -87,33 +88,34 @@
     <dialog id="settingsDialog">
       <div class="scanner-header"><div><p class="eyebrow">Konto i konfiguracja</p><h2>Ustawienia</h2></div><button class="icon-button" data-close="settingsDialog">×</button></div>
       <p id="profileSummary"></p>
-      <section class="settings-section"><h3>Sklepy</h3><div class="session-list" id="storeSettings"></div></section>
+      <section class="settings-section"><h3>Sklepy</h3><div class="search-field"><span>⌕</span><input id="storeSettingsSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="storeSettings"></div></section>
       <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="newCategoryName" maxlength="80" placeholder="Nazwa nowej kategorii" data-online-only /><button class="ghost-button" id="requestCategoryButton" data-online-only>Zgłoś</button></div><div class="session-list" id="categorySettings"></div></section>
-      <section class="settings-section"><h3>Historia spisów</h3><div class="session-list" id="sessionSettings"></div></section>
+      <section class="settings-section"><h3>Aktywne spisy</h3><div class="session-list" id="sessionSettings"></div></section>
+      <section class="settings-section"><h3>Archiwum spisów</h3><div class="session-list" id="archiveSettings"></div></section>
       <section class="settings-section"><h3>Dane lokalne</h3><p id="migrationText">Możesz jednorazowo przenieść dane ze starszej wersji zapisane na tym urządzeniu.</p><div class="form-actions"><button class="ghost-button" id="migrateButton">Importuj dane lokalne</button><button class="ghost-button" id="exportBackupButton">Eksport JSON</button></div></section>
       <button class="danger-button wide" id="logoutButton">Wyloguj się</button>
     </dialog>
 
     <dialog id="adminDialog">
       <div class="scanner-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
-      <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="session-list" id="adminStoreList"></div></section>
+      <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
       <section class="settings-section"><h3>Prośby o przypisanie</h3><div class="session-list" id="membershipRequests"></div></section>
       <section class="settings-section"><h3>Zmiany kategorii</h3><div class="session-list" id="categoryRequests"></div></section>
     </dialog>
 
     <dialog id="remindersDialog">
       <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Potwierdź flagi</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
-      <p>Te spisy przekroczyły okres archiwum. Potwierdź dopiero, gdy flagi produktów zostały nadane w kolektorze.</p>
+      <p>Te archiwalne spisy w wybranym sklepie mają pozycje bez nadanych flag.</p>
       <div class="session-list" id="reminderList"></div>
       <button class="ghost-button wide" data-close="remindersDialog">Przypomnij później</button>
     </dialog>
 
     <dialog id="scannerDialog"><div class="scanner-header"><h2>Zeskanuj kod</h2><button class="icon-button" id="closeScannerButton">×</button></div><div class="scanner-frame"><video id="scannerVideo" playsinline muted></video><div class="scan-line"></div></div><p id="scannerMessage">Umieść kod kreskowy wewnątrz ramki.</p></dialog>
     <div class="toast" id="toast"></div>
-    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><button class="edit-button">Edytuj</button><button class="delete-button">Usuń</button></div></article></template>
+    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><label class="flag-check hidden"><input class="flag-checkbox" type="checkbox" /><span>Flaga nadana</span></label><button class="edit-button">Edytuj</button><button class="delete-button">Usuń</button></div></article></template>
     <script src="vendor/supabase.min.js" defer></script>
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=6" defer></script>
+    <script src="app.js?v=7" defer></script>
   </body>
 </html>

@@ -515,6 +515,7 @@ select:focus {
 
 .search-field {
   position: relative;
+  margin-bottom: 9px;
 }
 
 .search-field span {
@@ -618,6 +619,40 @@ select {
 
 .product-actions .delete-button {
   color: var(--primary);
+}
+
+.flag-check {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  max-width: 82px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.flag-check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--primary);
+}
+
+.archive-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--primary-soft);
+}
+
+.archive-banner span {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .empty-state {
