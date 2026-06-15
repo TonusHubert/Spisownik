@@ -36,6 +36,7 @@ let scannerControls = null;
 let pendingCount = 0;
 let syncing = false;
 let syncError = "";
+let scheduledAuthKey = null;
 
 function emptyState() {
   return { stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], membershipRequests: [], categoryRequests: [] };
@@ -335,7 +336,19 @@ async function onAuth(session) {
   user = session?.user || null;
   el.authView.classList.toggle("hidden", Boolean(user)); el.appView.classList.toggle("hidden", !user);
   el.settingsButton.classList.toggle("hidden", !user); el.remindersButton.classList.toggle("hidden", !user); if (!user) el.adminButton.classList.add("hidden");
-  if (user) await loadData(); else { profile = null; state = emptyState(); }
+  if (user) {
+    el.savedStatus.textContent = "Pobieranie danych…";
+    await loadData();
+  } else {
+    profile = null; state = emptyState(); pendingCount = 0; syncing = false; syncError = "";
+  }
+}
+
+function scheduleAuth(session) {
+  const key = session?.access_token || "signed-out";
+  if (key === scheduledAuthKey) return;
+  scheduledAuthKey = key;
+  setTimeout(() => onAuth(session).catch((error) => report(error, "Nie udało się uruchomić aplikacji.")), 0);
 }
 
 async function requestMembership(storeId) { if (!requireOnline()) return; const { error } = await db.rpc("request_store_membership", { target_store: storeId }); if (error) return report(error); showToast("Prośba została wysłana."); await loadData(); }
@@ -497,5 +510,11 @@ $("#themeButton").onclick = () => { const theme = document.documentElement.datas
 window.addEventListener("online", syncPending); window.addEventListener("offline", renderAll);
 document.documentElement.dataset.theme = localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 el.configWarning.classList.toggle("hidden", configured);
-if (configured) { db.auth.onAuthStateChange((_event, session) => onAuth(session)); db.auth.getSession().then(({ data }) => onAuth(data.session)); }
+if (configured) {
+  db.auth.onAuthStateChange((_event, session) => scheduleAuth(session));
+  db.auth.getSession().then(({ data, error }) => {
+    if (error) report(error, "Nie udało się odczytać sesji.");
+    else scheduleAuth(data.session);
+  });
+}
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./service-worker.js");
