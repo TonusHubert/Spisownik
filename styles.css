@@ -473,6 +473,7 @@ select:focus {
 
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
 }
@@ -504,7 +505,7 @@ select:focus {
 
 .toolbar {
   display: grid;
-  grid-template-columns: 1fr 155px 155px;
+  grid-template-columns: 1fr 170px 220px;
   gap: 8px;
   margin-bottom: 10px;
 }

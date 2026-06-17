@@ -23,7 +23,8 @@ const el = {
   categorySettings: $("#categorySettings"), sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
   membershipRequests: $("#membershipRequests"), categoryRequests: $("#categoryRequests"), reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
-  archiveStatus: $("#archiveStatus"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"), newSessionButton: $("#newSessionButton"),
+  archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
+  newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
   toast: $("#toast"), scannerDialog: $("#scannerDialog"), scannerVideo: $("#scannerVideo"), scannerMessage: $("#scannerMessage"),
 };
 
@@ -50,6 +51,7 @@ function approvedStoreIds() {
 }
 function activeInventory() { return state.inventories.find((x) => x.id === activeInventoryId); }
 function activeItems() { return state.items.filter((x) => x.inventory_id === activeInventoryId); }
+function canEditInventory(inventory = activeInventory()) { return Boolean(inventory && (inventory.status === "active" || (inventory.status === "archived" && isAdmin()))); }
 function categoryName(id) { return state.categories.find((x) => x.id === id)?.name || "Inne"; }
 function storeName(id) { return state.stores.find((x) => x.id === id)?.name || "Nieznany sklep"; }
 function storeNumber(name) { return Number(String(name).match(/^\s*(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER); }
@@ -257,20 +259,33 @@ function renderCategories() {
 function renderInventory() {
   const inventory = activeInventory();
   const archived = inventory?.status === "archived";
+  const editable = canEditInventory(inventory);
   el.sessionName.value = inventory?.name || "";
-  el.sessionName.disabled = !inventory || archived;
-  el.addPanel.classList.toggle("hidden", archived);
+  el.sessionName.disabled = !editable;
+  el.addPanel.classList.toggle("hidden", !editable);
   el.archiveBanner.classList.toggle("hidden", !archived);
   el.finishSessionButton.classList.toggle("hidden", !inventory || archived);
+  el.cancelSessionButton.classList.toggle("hidden", !inventory || archived);
+  el.undoLastItemButton.classList.toggle("hidden", !editable || activeItems().length === 0);
   if (archived) {
     const missing = missingFlags(inventory.id), deadline = archiveDeadline(inventory), expired = deadline <= new Date();
-    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · koniec archiwum ${date(deadline)}`;
-    el.deleteArchiveButton.classList.toggle("hidden", !expired || missing > 0);
-  } else el.deleteArchiveButton.classList.add("hidden");
+    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · koniec archiwum ${date(deadline)}${isAdmin() ? " · edycja administratora" : ""}`;
+    el.restoreArchiveButton.classList.toggle("hidden", !isAdmin());
+    el.deleteArchiveButton.classList.toggle("hidden", !(isAdmin() || (expired && missing === 0)));
+  } else {
+    el.restoreArchiveButton.classList.add("hidden");
+    el.deleteArchiveButton.classList.add("hidden");
+  }
   const queryText = el.searchInput.value.trim().toLocaleLowerCase("pl");
   let products = activeItems().filter((x) => `${x.name} ${x.ean}`.toLocaleLowerCase("pl").includes(queryText))
     .filter((x) => !el.categoryFilter.value || x.category_id === el.categoryFilter.value);
-  products.sort(el.sortSelect.value === "name-asc" ? (a, b) => a.name.localeCompare(b.name, "pl") : el.sortSelect.value === "total-desc" ? (a, b) => b.quantity * b.price - a.quantity * a.price : (a, b) => new Date(b.created_at) - new Date(a.created_at));
+  products.sort(el.sortSelect.value === "name-asc"
+    ? (a, b) => a.name.localeCompare(b.name, "pl")
+    : el.sortSelect.value === "unit-desc"
+      ? (a, b) => b.price - a.price
+      : el.sortSelect.value === "total-desc"
+        ? (a, b) => b.quantity * b.price - a.quantity * a.price
+        : (a, b) => new Date(b.created_at) - new Date(a.created_at));
   el.productList.replaceChildren();
   for (const product of products) {
     const node = el.productTemplate.content.cloneNode(true);
@@ -282,8 +297,8 @@ function renderInventory() {
     node.querySelector(".product-total").textContent = money(product.quantity * product.price);
     node.querySelector(".edit-button").onclick = () => editProduct(product);
     node.querySelector(".delete-button").onclick = () => deleteProduct(product);
-    node.querySelector(".edit-button").classList.toggle("hidden", archived);
-    node.querySelector(".delete-button").classList.toggle("hidden", archived);
+    node.querySelector(".edit-button").classList.toggle("hidden", !editable);
+    node.querySelector(".delete-button").classList.toggle("hidden", !editable);
     const flag = node.querySelector(".flag-check");
     flag.classList.toggle("hidden", !archived);
     const checkbox = node.querySelector(".flag-checkbox");
@@ -331,7 +346,12 @@ function renderSettings() {
   el.archiveSettings.replaceChildren();
   for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived").sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at))) {
     const missing = missingFlags(inventory.id);
-    el.archiveSettings.append(row(inventory.name, `${date(inventory.archived_at)} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, [["Otwórz", () => openInventory(inventory.id)]]));
+    const actions = [["Otwórz", () => openInventory(inventory.id)]];
+    if (isAdmin()) {
+      actions.push(["Przywróć", () => { openInventory(inventory.id); restoreArchivedInventory(); }]);
+      actions.push(["Usuń", () => { openInventory(inventory.id); deleteArchivedInventory(); }, true]);
+    }
+    el.archiveSettings.append(row(inventory.name, `${date(inventory.archived_at)} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, actions));
   }
 }
 
@@ -414,10 +434,19 @@ async function finishInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
   if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
-  if (!confirm("Zakończyć spis? Po przeniesieniu do archiwum nie będzie można edytować jego pozycji.")) return;
+  if (!confirm("Zakończyć spis i przenieść go do archiwum?")) return;
   const { error } = await db.rpc("archive_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
   showToast("Spis został przeniesiony do archiwum."); await loadData();
+}
+async function cancelInventory() {
+  const inventory = activeInventory();
+  if (!inventory || inventory.status !== "active" || !requireOnline()) return;
+  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
+  if (!confirm(`Anulować spis „${inventory.name}”? Spis i jego pozycje zostaną usunięte.`)) return;
+  const { error } = await db.rpc("cancel_inventory", { target_inventory: inventory.id });
+  if (error) return report(error);
+  activeInventoryId = null; showToast("Spis został anulowany."); await loadData();
 }
 async function setProductFlag(product, assigned) {
   const changed = { ...product, flag_assigned: assigned, updated_at: now() };
@@ -431,6 +460,15 @@ async function deleteArchivedInventory() {
   if (error) return report(error);
   activeInventoryId = null; showToast("Spis został trwale usunięty."); await loadData();
 }
+async function restoreArchivedInventory() {
+  const inventory = activeInventory();
+  if (!inventory || inventory.status !== "archived" || !isAdmin() || !requireOnline()) return;
+  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
+  if (!confirm(`Przywrócić spis „${inventory.name}” do aktywnych?`)) return;
+  const { error } = await db.rpc("restore_archived_inventory", { target_inventory: inventory.id });
+  if (error) return report(error);
+  showToast("Spis został przywrócony."); await loadData();
+}
 
 async function newInventory() {
   if (!activeStoreId) return;
@@ -440,7 +478,7 @@ async function newInventory() {
   await enqueue("inventory_upsert", inventory);
 }
 async function renameInventory() {
-  const inventory = activeInventory(); if (!inventory || inventory.status !== "active") return;
+  const inventory = activeInventory(); if (!canEditInventory(inventory)) return;
   const changed = { ...inventory, name: el.sessionName.value.trim() || defaultInventoryName(), updated_at: now() };
   upsertLocal(state.inventories, changed); renderAll();
   await enqueue("inventory_upsert", changed);
@@ -449,14 +487,24 @@ async function renameInventory() {
 function resetForm() { el.productForm.reset(); el.quantity.value = 1; el.editingId.value = ""; el.formTitle.textContent = "Dodaj produkt"; el.submitButton.textContent = "Dodaj do spisu"; el.cancelEditButton.classList.add("hidden"); el.formError.textContent = ""; renderCategories(); }
 function editProduct(product) { el.editingId.value = product.id; el.ean.value = product.ean; el.name.value = product.name; el.category.value = product.category_id; el.quantity.value = product.quantity; el.price.value = String(product.price).replace(".", ","); el.formTitle.textContent = "Edytuj produkt"; el.submitButton.textContent = "Zapisz zmiany"; el.cancelEditButton.classList.remove("hidden"); }
 async function deleteProduct(product) {
+  if (!canEditInventory()) return;
   if (!confirm(`Usunąć „${product.name}” ze spisu?`)) return;
   const deleted = { ...product, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
   state.items = state.items.filter((item) => item.id !== product.id); resetForm(); renderAll();
   await enqueue("item_upsert", deleted);
 }
+async function undoLastItem() {
+  if (!canEditInventory()) return;
+  const last = [...activeItems()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  if (!last) return showToast("Nie ma pozycji do usunięcia.");
+  if (!confirm(`Usunąć ostatnio dodaną pozycję „${last.name}”?`)) return;
+  const deleted = { ...last, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
+  state.items = state.items.filter((item) => item.id !== last.id); resetForm(); renderAll();
+  await enqueue("item_upsert", deleted);
+}
 
 async function submitProduct(event) {
-  event.preventDefault(); if (!activeInventoryId || activeInventory()?.status !== "active") return;
+  event.preventDefault(); if (!activeInventoryId || !canEditInventory()) return;
   const quantity = Number(el.quantity.value), price = Number(el.price.value.replace(",", "."));
   const product = { ean: el.ean.value.trim(), name: el.name.value.trim(), category_id: el.category.value, quantity, price };
   if (!product.ean || !product.name || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(price) || price < 0) return el.formError.textContent = "Uzupełnij poprawnie wszystkie pola.";
@@ -537,9 +585,9 @@ function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.s
 
 el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
-el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; chooseActive(); renderAll(); maybeShowDailyReminder(); };
+el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; chooseActive(); renderAll(); maybeShowDailyReminder(); };
 el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
-el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
+el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 $("#requestCategoryButton").onclick = async () => { const value = $("#newCategoryName").value.trim(); if (!value) return; $("#newCategoryName").value = ""; const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single(); if (error) return report(error); if (isAdmin()) { const result = await db.rpc("review_category_request", { target_request: data.id, approve: true }); if (result.error) return report(result.error); } else showToast("Zmiana czeka na zatwierdzenie."); await loadData(); };
 $("#adminAddStore").onclick = async () => {

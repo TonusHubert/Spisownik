@@ -44,7 +44,7 @@
           </div>
           <div class="session-footer">
             <div class="sync-status"><p class="saved-status" id="savedStatus">Połączono z Supabase.</p><button class="text-button compact" id="syncButton" type="button">Synchronizuj</button></div>
-            <div class="form-actions"><button class="ghost-button compact" id="finishSessionButton" type="button">Zakończ spis</button><button class="ghost-button compact" id="newSessionButton" type="button">Nowy spis</button></div>
+            <div class="form-actions"><button class="danger-button compact hidden" id="cancelSessionButton" type="button">Anuluj spis</button><button class="ghost-button compact" id="finishSessionButton" type="button">Zakończ spis</button><button class="ghost-button compact" id="newSessionButton" type="button">Nowy spis</button></div>
           </div>
         </section>
 
@@ -59,7 +59,7 @@
             <article class="stat-card"><span>Sztuki</span><strong id="quantityStat">0</strong></article>
             <article class="stat-card accent"><span>Wartość</span><strong id="valueStat">0,00 zł</strong></article>
           </section>
-          <section class="archive-banner hidden" id="archiveBanner"><strong>Spis archiwalny</strong><span id="archiveStatus"></span><button class="danger-button compact hidden" id="deleteArchiveButton" type="button">Trwale usuń</button></section>
+          <section class="archive-banner hidden" id="archiveBanner"><strong>Spis archiwalny</strong><span id="archiveStatus"></span><button class="ghost-button compact hidden" id="restoreArchiveButton" type="button">Przywróć</button><button class="danger-button compact hidden" id="deleteArchiveButton" type="button">Trwale usuń</button></section>
           <section class="panel add-panel" id="addPanel">
             <div class="section-heading"><div><p class="eyebrow">Szybkie dodawanie</p><h2 id="formTitle">Dodaj produkt</h2></div><button class="scan-button" id="scanButton" type="button">Skanuj EAN</button></div>
             <form id="productForm" autocomplete="off">
@@ -71,13 +71,13 @@
                 <div class="field"><label for="quantity">Ilość</label><input id="quantity" type="number" min="1" value="1" required /></div>
                 <div class="field"><label for="price">Cena za sztukę</label><input id="price" inputmode="decimal" required /></div>
               </div>
-              <div class="form-actions"><button class="primary-button" type="submit" id="submitButton">Dodaj do spisu</button><button class="ghost-button hidden" id="cancelEditButton" type="button">Anuluj</button></div>
+              <div class="form-actions"><button class="primary-button" type="submit" id="submitButton">Dodaj do spisu</button><button class="ghost-button hidden" id="cancelEditButton" type="button">Anuluj</button><button class="ghost-button" id="undoLastItemButton" type="button">Usuń ostatnią</button></div>
               <p class="form-error" id="formError"></p>
             </form>
           </section>
           <section class="list-section">
             <div class="section-heading list-heading"><div><p class="eyebrow">Bieżący spis</p><h2>Produkty</h2></div><button class="ghost-button compact" id="exportCsvButton" type="button">Eksport CSV</button></div>
-            <div class="toolbar"><input id="searchInput" type="search" placeholder="Szukaj po nazwie lub kodzie" /><select id="categoryFilter"></select><select id="sortSelect"><option value="newest">Najnowsze</option><option value="total-desc">Wartość: malejąco</option><option value="name-asc">Nazwa: A–Z</option></select></div>
+            <div class="toolbar"><input id="searchInput" type="search" placeholder="Szukaj po nazwie lub kodzie" /><select id="categoryFilter"></select><select id="sortSelect"><option value="newest">Najnowsze</option><option value="unit-desc">Cena jednostkowa: malejąco</option><option value="total-desc">Wartość: malejąco</option><option value="name-asc">Nazwa: A–Z</option></select></div>
             <div class="product-list" id="productList"></div>
             <div class="empty-state" id="emptyState"><h3>Spis jest jeszcze pusty</h3><p>Dodaj lub zeskanuj pierwszy produkt.</p></div>
           </section>
@@ -116,6 +116,6 @@
     <script src="vendor/supabase.min.js" defer></script>
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=7" defer></script>
+    <script src="app.js?v=8" defer></script>
   </body>
 </html>

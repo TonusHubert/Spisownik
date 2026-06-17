@@ -48,6 +48,21 @@ begin
 end;
 $$;
 
+create or replace function public.protect_inventory_status()
+returns trigger language plpgsql as $$
+begin
+  if old.status = 'archived' and new is distinct from old
+    and coalesce(current_setting('app.allow_inventory_status', true), '') <> 'true' then
+    raise exception 'Archiwalny spis jest tylko do odczytu';
+  end if;
+  if new.status <> old.status and auth.uid() is not null
+    and coalesce(current_setting('app.allow_inventory_status', true), '') <> 'true' then
+    raise exception 'Status spisu moze zmienic tylko funkcja archiwizacji';
+  end if;
+  return new;
+end;
+$$;
+
 create or replace function public.sync_inventory_item(payload jsonb)
 returns void language plpgsql security definer set search_path = public
 as $$
@@ -165,7 +180,132 @@ begin
 end;
 $$;
 
+create or replace function public.sync_inventory(payload jsonb)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare
+  target_store uuid := (payload->>'store_id')::uuid;
+  target_inventory uuid := (payload->>'id')::uuid;
+  existing_status public.inventory_status;
+begin
+  if not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
+  select status into existing_status from inventories where id = target_inventory;
+  if existing_status = 'archived' and not is_admin() then raise exception 'Archiwalny spis jest tylko do odczytu'; end if;
+  if existing_status = 'archived' then perform set_config('app.allow_inventory_status', 'true', true); end if;
+
+  insert into inventories (id, store_id, name, status, created_at, created_by, updated_at)
+  values (
+    target_inventory, target_store, trim(payload->>'name'), 'active',
+    (payload->>'created_at')::timestamptz, auth.uid(), (payload->>'updated_at')::timestamptz
+  )
+  on conflict (id) do update set name = excluded.name, updated_at = excluded.updated_at
+  where inventories.store_id = excluded.store_id
+    and (inventories.status = 'active' or (inventories.status = 'archived' and is_admin()))
+    and excluded.updated_at >= inventories.updated_at;
+end;
+$$;
+
+create or replace function public.sync_inventory_item(payload jsonb)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare
+  target_inventory uuid := (payload->>'inventory_id')::uuid;
+  target_store uuid;
+  target_status public.inventory_status;
+  changed_at timestamptz := (payload->>'updated_at')::timestamptz;
+begin
+  select store_id, status into target_store, target_status from inventories where id = target_inventory;
+  if target_store is null or not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
+  if target_status = 'archived' and not is_admin() then raise exception 'Archiwalny spis jest tylko do odczytu'; end if;
+  if target_status = 'archived' then perform set_config('app.allow_inventory_flag', 'true', true); end if;
+
+  if payload->>'deleted_at' is not null then
+    update inventory_items set deleted_at = (payload->>'deleted_at')::timestamptz, updated_at = changed_at
+    where id = (payload->>'id')::uuid and inventory_id = target_inventory and changed_at >= updated_at;
+    return;
+  end if;
+
+  insert into catalog_products (ean, name, category_id, updated_at, updated_by)
+  values (payload->>'ean', trim(payload->>'name'), (payload->>'category_id')::uuid, changed_at, auth.uid())
+  on conflict (ean) do update set name = excluded.name, category_id = excluded.category_id, updated_at = excluded.updated_at, updated_by = auth.uid()
+  where excluded.updated_at >= catalog_products.updated_at;
+
+  insert into store_prices (store_id, ean, price, updated_at, updated_by)
+  values (target_store, payload->>'ean', (payload->>'price')::numeric, changed_at, auth.uid())
+  on conflict (store_id, ean) do update set price = excluded.price, updated_at = excluded.updated_at, updated_by = auth.uid()
+  where excluded.updated_at >= store_prices.updated_at;
+
+  insert into inventory_items (id, inventory_id, ean, name, category_id, quantity, price, created_at, updated_at, deleted_at)
+  values (
+    (payload->>'id')::uuid, target_inventory, payload->>'ean', trim(payload->>'name'),
+    (payload->>'category_id')::uuid, (payload->>'quantity')::integer, (payload->>'price')::numeric,
+    (payload->>'created_at')::timestamptz, changed_at, null
+  )
+  on conflict (id) do update set
+    ean = excluded.ean, name = excluded.name, category_id = excluded.category_id, quantity = excluded.quantity,
+    price = excluded.price, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
+  where excluded.updated_at >= inventory_items.updated_at;
+end;
+$$;
+
+create or replace function public.restore_archived_inventory(target_inventory uuid)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare target_store uuid;
+begin
+  select store_id into target_store from inventories where id = target_inventory and status = 'archived';
+  if target_store is null or not is_admin() then raise exception 'Brak uprawnien'; end if;
+  perform set_config('app.allow_inventory_status', 'true', true);
+  update inventories set status = 'active', archived_at = null, updated_at = now() where id = target_inventory;
+end;
+$$;
+
+create or replace function public.protect_inventory_status()
+returns trigger language plpgsql as $$
+begin
+  if old.status = 'archived' and new is distinct from old
+    and coalesce(current_setting('app.allow_inventory_status', true), '') <> 'true' then
+    raise exception 'Archiwalny spis jest tylko do odczytu';
+  end if;
+  if new.status <> old.status and auth.uid() is not null
+    and coalesce(current_setting('app.allow_inventory_status', true), '') <> 'true' then
+    raise exception 'Status spisu moze zmienic tylko funkcja archiwizacji';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.cancel_inventory(target_inventory uuid)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare target_store uuid;
+begin
+  select store_id into target_store from inventories where id = target_inventory and status = 'active';
+  if target_store is null or not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
+  delete from inventories where id = target_inventory;
+end;
+$$;
+
+create or replace function public.delete_archived_inventory(target_inventory uuid)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare target_store uuid; retention integer; archived timestamptz;
+begin
+  select i.store_id, s.retention_days, i.archived_at into target_store, retention, archived
+  from inventories i join stores s on s.id = i.store_id
+  where i.id = target_inventory and i.status = 'archived';
+  if target_store is null or not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
+  if not is_admin() and archived + make_interval(days => retention) > now() then raise exception 'Okres archiwum jeszcze nie minal'; end if;
+  if not is_admin() and exists (select 1 from inventory_items where inventory_id = target_inventory and deleted_at is null and not flag_assigned)
+    then raise exception 'Nie wszystkie flagi zostaly nadane'; end if;
+  perform set_config('app.allow_inventory_flag', 'true', true);
+  delete from inventories where id = target_inventory;
+end;
+$$;
+
 grant execute on function public.archive_inventory(uuid) to authenticated;
+grant execute on function public.restore_archived_inventory(uuid) to authenticated;
+grant execute on function public.cancel_inventory(uuid) to authenticated;
 grant execute on function public.set_inventory_item_flag(uuid, boolean) to authenticated;
 grant execute on function public.delete_archived_inventory(uuid) to authenticated;
 
