@@ -452,3 +452,61 @@ grant execute on function public.review_category_request(uuid, boolean) to authe
 grant execute on function public.set_inventory_item_verified(uuid, boolean) to authenticated;
 grant execute on function public.submit_sensitive_product_check(uuid, uuid, integer) to authenticated;
 grant execute on function public.delete_empty_active_inventory(uuid) to authenticated;
+
+-- Zdjęcia produktów wrażliwych oraz atomowa naprawa zatwierdzania kategorii.
+alter table public.sensitive_products add column if not exists image_path text;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('sensitive-product-images', 'sensitive-product-images', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists sensitive_product_images_public_read on storage.objects;
+create policy sensitive_product_images_public_read on storage.objects
+for select using (bucket_id = 'sensitive-product-images');
+drop policy if exists sensitive_product_images_admin_insert on storage.objects;
+create policy sensitive_product_images_admin_insert on storage.objects
+for insert to authenticated with check (bucket_id = 'sensitive-product-images' and public.is_admin());
+drop policy if exists sensitive_product_images_admin_update on storage.objects;
+create policy sensitive_product_images_admin_update on storage.objects
+for update to authenticated using (bucket_id = 'sensitive-product-images' and public.is_admin())
+with check (bucket_id = 'sensitive-product-images' and public.is_admin());
+drop policy if exists sensitive_product_images_admin_delete on storage.objects;
+create policy sensitive_product_images_admin_delete on storage.objects
+for delete to authenticated using (bucket_id = 'sensitive-product-images' and public.is_admin());
+
+create or replace function public.review_category_request(target_request uuid, approve boolean)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare req category_requests%rowtype; fallback_id uuid; changed_id uuid;
+begin
+  if not is_admin() then raise exception 'Brak uprawnien'; end if;
+  if approve is null then raise exception 'Brak decyzji'; end if;
+  select * into req from category_requests where id = target_request and status = 'pending' for update;
+  if req.id is null then raise exception 'Nie znaleziono zgloszenia'; end if;
+  if approve then
+    if req.request_type = 'create' then
+      insert into categories(name) values (trim(req.proposed_name)) returning id into changed_id;
+    elsif req.request_type = 'rename' then
+      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback returning id into changed_id;
+      if changed_id is null then raise exception 'Nie znaleziono kategorii lub kategoria jest chroniona'; end if;
+    else
+      select id into fallback_id from categories where is_fallback;
+      if fallback_id is null then raise exception 'Nie znaleziono kategorii zastepczej Inne'; end if;
+      if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie mozna usunac kategorii Inne'; end if;
+      if not exists(select 1 from categories where id = req.category_id) then raise exception 'Nie znaleziono kategorii'; end if;
+      update catalog_products set category_id = fallback_id where category_id = req.category_id;
+      perform set_config('app.allow_inventory_flag', 'true', true);
+      update inventory_items set category_id = fallback_id where category_id = req.category_id;
+      delete from categories where id = req.category_id;
+    end if;
+  end if;
+  update category_requests set status = case when approve then 'approved' else 'rejected' end,
+    reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
+end;
+$$;
+
+revoke all on function public.review_category_request(uuid, boolean) from public, anon;
+grant execute on function public.review_category_request(uuid, boolean) to authenticated;

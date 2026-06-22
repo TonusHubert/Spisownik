@@ -848,7 +848,84 @@ dialog::backdrop {
   margin-bottom: 14px;
 }
 
+.sensitive-card {
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: stretch;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.sensitive-card:hover,
+.sensitive-card:focus-visible,
+.sensitive-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+  outline: none;
+}
+
+.sensitive-card:active {
+  transform: scale(0.995);
+}
+
+.sensitive-product-media {
+  display: grid;
+  overflow: hidden;
+  min-height: 112px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  place-items: center;
+}
+
+.sensitive-product-media img {
+  width: 100%;
+  height: 100%;
+  min-height: 112px;
+  object-fit: cover;
+}
+
+.sensitive-image-placeholder {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.sensitive-product-details {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.sensitive-product-details h3 {
+  font-size: 1rem;
+}
+
+.sensitive-ean {
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.barcode-frame {
+  overflow: hidden;
+  margin-top: 10px;
+  padding: 6px;
+  border: 1px solid #d7dce3;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.sensitive-barcode {
+  display: block;
+  width: 100%;
+  height: 94px;
+}
+
 .sensitive-status {
+  justify-self: end;
   min-width: 88px;
   padding: 7px 10px;
   border-radius: 999px;
@@ -872,6 +949,44 @@ dialog::backdrop {
 .sensitive-card.alert {
   border-color: #ef4444;
   box-shadow: 0 0 0 1px #ef4444;
+}
+
+.sensitive-admin-form {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.sensitive-admin-form > input {
+  width: 100%;
+}
+
+.file-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.file-field input {
+  height: auto;
+  padding: 9px;
+}
+
+.remove-image-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.remove-image-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
 }
 
 .flag-check,
@@ -937,6 +1052,20 @@ dialog::backdrop {
 }
 
 @media (max-width: 560px) {
+  .sensitive-card {
+    grid-template-columns: 82px minmax(0, 1fr);
+    padding: 11px;
+  }
+
+  .sensitive-product-media,
+  .sensitive-product-media img {
+    min-height: 96px;
+  }
+
+  .sensitive-barcode {
+    height: 84px;
+  }
+
   .topbar,
   main {
     width: min(100% - 20px, 760px);
@@ -960,6 +1089,15 @@ dialog::backdrop {
 }
 
 @media (max-width: 390px) {
+  .sensitive-card {
+    grid-template-columns: 1fr;
+  }
+
+  .sensitive-product-media,
+  .sensitive-product-media img {
+    max-height: 180px;
+  }
+
   .two-columns {
     grid-template-columns: 1fr;
     gap: 0;

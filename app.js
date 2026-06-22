@@ -30,6 +30,9 @@ const el = {
   sensitiveCheckForm: $("#sensitiveCheckForm"), sensitiveEan: $("#sensitiveEan"), sensitiveQuantity: $("#sensitiveQuantity"),
   sensitiveFormError: $("#sensitiveFormError"), sensitiveProductList: $("#sensitiveProductList"), sensitiveProgress: $("#sensitiveProgress"),
   sensitiveEmptyState: $("#sensitiveEmptyState"), sensitiveAdminForm: $("#sensitiveAdminForm"), sensitiveAdminList: $("#sensitiveAdminList"),
+  sensitiveAdminEditingId: $("#sensitiveAdminEditingId"), sensitiveAdminEan: $("#sensitiveAdminEan"), sensitiveAdminName: $("#sensitiveAdminName"),
+  sensitiveAdminImage: $("#sensitiveAdminImage"), sensitiveRemoveImage: $("#sensitiveRemoveImage"), sensitiveRemoveImageLabel: $("#sensitiveRemoveImageLabel"),
+  sensitiveAdminSubmit: $("#sensitiveAdminSubmit"), sensitiveAdminCancel: $("#sensitiveAdminCancel"), sensitiveAdminError: $("#sensitiveAdminError"),
 };
 
 let signupMode = false;
@@ -45,7 +48,6 @@ let syncing = false;
 let syncError = "";
 let scheduledAuthKey = null;
 let activeView = "inventories";
-let scannerTarget = "inventory";
 
 function emptyState() {
   return { stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], membershipRequests: [], categoryRequests: [], sensitiveProducts: [], sensitiveChecks: [] };
@@ -73,6 +75,10 @@ function showToast(message) { clearTimeout(toastTimer); el.toast.textContent = m
 function report(error, fallback = "Nie udało się wykonać operacji.") { console.error(error); showToast(error?.message || fallback); }
 function requireOnline() { if (online()) return true; showToast("Ta operacja wymaga połączenia z internetem."); return false; }
 function now() { return new Date().toISOString(); }
+function sensitiveImageUrl(path) {
+  if (!path || !db) return "";
+  return db.storage.from("sensitive-product-images").getPublicUrl(path).data.publicUrl;
+}
 
 function openOfflineDb() {
   return new Promise((resolve, reject) => {
@@ -426,19 +432,52 @@ function renderSensitiveProducts() {
     const check = checks.get(product.id);
     const card = document.createElement("article");
     card.className = `product-card sensitive-card${check?.quantity > 2 ? " alert" : ""}`;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Wybierz produkt ${product.name}`);
+    const media = document.createElement("div"); media.className = "sensitive-product-media";
+    if (product.image_path) {
+      const image = document.createElement("img");
+      image.src = sensitiveImageUrl(product.image_path);
+      image.alt = product.name;
+      image.loading = "lazy";
+      image.onerror = () => media.replaceChildren(createSensitivePlaceholder());
+      media.append(image);
+    } else media.append(createSensitivePlaceholder());
     const main = document.createElement("div"); main.className = "product-main";
     const title = document.createElement("h3"); title.textContent = product.name;
-    const ean = document.createElement("p"); ean.textContent = `EAN: ${product.ean}`;
-    main.append(title, ean);
+    const ean = document.createElement("p"); ean.className = "sensitive-ean"; ean.textContent = `EAN: ${product.ean}`;
+    const barcodeFrame = document.createElement("div"); barcodeFrame.className = "barcode-frame";
+    const barcode = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    barcode.classList.add("sensitive-barcode");
+    barcodeFrame.append(barcode);
+    main.append(title, ean, barcodeFrame);
+    window.SpisownikBarcode?.draw(barcode, product.ean);
     const status = document.createElement("strong");
     status.className = `sensitive-status${check ? check.quantity > 2 ? " alert" : " ok" : ""}`;
     status.textContent = check ? `${check.quantity} szt. · ${check.quantity > 2 ? "ALARM" : "OK"}` : "Do sprawdzenia";
-    card.append(main, status);
-    card.onclick = () => { el.sensitiveEan.value = product.ean; el.sensitiveQuantity.focus(); };
+    const details = document.createElement("div"); details.className = "sensitive-product-details"; details.append(main, status);
+    card.append(media, details);
+    const select = () => {
+      el.sensitiveEan.value = product.ean;
+      resolveSensitiveEan();
+      card.classList.add("selected");
+      setTimeout(() => card.classList.remove("selected"), 700);
+    };
+    card.onclick = select;
+    card.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } };
     el.sensitiveProductList.append(card);
   }
   el.sensitiveProgress.textContent = `${checks.size} / ${products.length}`;
   el.sensitiveEmptyState.classList.toggle("hidden", products.length > 0);
+}
+
+function createSensitivePlaceholder() {
+  const placeholder = document.createElement("div");
+  placeholder.className = "sensitive-image-placeholder";
+  placeholder.setAttribute("aria-hidden", "true");
+  placeholder.textContent = "Brak zdjęcia";
+  return placeholder;
 }
 
 function renderReminders() {
@@ -460,7 +499,7 @@ function renderAdmin() {
   el.membershipRequests.replaceChildren(...state.membershipRequests.map((m) => row(m.profiles?.display_name || m.profiles?.email || m.user_id, m.stores?.name || storeName(m.store_id), [["Zatwierdź", () => reviewMembership(m, "approved")], ["Odrzuć", () => reviewMembership(m, "rejected"), true]])));
   el.categoryRequests.replaceChildren(...state.categoryRequests.filter((r) => r.status === "pending").map((r) => row(`${r.request_type === "create" ? "Dodaj" : r.request_type === "rename" ? "Zmień" : "Usuń"}: ${r.proposed_name || r.categories?.name}`, "Oczekuje na decyzję", [["Zatwierdź", (event) => reviewCategory(r.id, true, event.currentTarget)], ["Odrzuć", (event) => reviewCategory(r.id, false, event.currentTarget), true]])));
   el.sensitiveAdminList.replaceChildren(...state.sensitiveProducts.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((product) =>
-    row(product.name, `EAN: ${product.ean}`, [["Edytuj", () => editSensitiveProduct(product)], ["Usuń", () => deleteSensitiveProduct(product), true]])));
+    row(product.name, `EAN: ${product.ean}${product.image_path ? " · zdjęcie dodane" : " · bez zdjęcia"}`, [["Edytuj", () => editSensitiveProduct(product)], ["Usuń", () => deleteSensitiveProduct(product), true]])));
 }
 
 async function authSubmit(event) {
@@ -501,9 +540,15 @@ async function requestCategory(type, category = null) {
   if (type !== "delete") { proposedName = prompt(type === "create" ? "Nazwa nowej kategorii:" : "Nowa nazwa kategorii:", category?.name || "")?.trim(); if (!proposedName) return; }
   const { data, error } = await db.from("category_requests").insert({ request_type: type, category_id: category?.id || null, proposed_name: proposedName, requested_by: user.id }).select().single();
   if (error) return report(error);
-  if (isAdmin()) { const result = await db.rpc("review_category_request", { target_request: data.id, approve: true }); if (result.error) return report(result.error); showToast("Kategoria została zmieniona."); }
-  else showToast("Zmiana czeka na zatwierdzenie administratora.");
-  await loadData();
+  if (isAdmin()) {
+    const result = await db.rpc("review_category_request", { target_request: data.id, approve: true });
+    if (result.error) return report(result.error);
+    showToast("Kategoria została zmieniona.");
+    try { await refreshCategoryData(); } catch (refreshError) { report(refreshError, "Kategoria została zmieniona, ale nie udało się odświeżyć listy."); }
+  } else {
+    showToast("Zmiana czeka na zatwierdzenie administratora.");
+    await loadData();
+  }
 }
 async function reviewCategory(id, approve, button = null) {
   if (!requireOnline()) return;
@@ -517,7 +562,25 @@ async function reviewCategory(id, approve, button = null) {
     return report(error, "Nie udało się rozpatrzyć zgłoszenia kategorii.");
   }
   showToast(approve ? "Kategoria została zatwierdzona." : "Propozycja została odrzucona.");
-  await loadData();
+  try {
+    await refreshCategoryData();
+  } catch (refreshError) {
+    report(refreshError, "Decyzja została zapisana, ale nie udało się odświeżyć kategorii.");
+  }
+}
+
+async function refreshCategoryData() {
+  const [categories, categoryRequests] = await Promise.all([
+    query("categories", "*"),
+    query("category_requests", "*, categories(name)", isAdmin() ? [["eq", "status", "pending"]] : [["eq", "requested_by", user.id]]),
+  ]);
+  state.categories = categories;
+  state.categoryRequests = categoryRequests;
+  await saveSnapshot();
+  renderCategories();
+  renderInventory();
+  renderSettings();
+  renderAdmin();
 }
 
 async function adminEditStore(event, store) {
@@ -696,27 +759,73 @@ function resolveSensitiveEan() {
 async function saveSensitiveProduct(event) {
   event.preventDefault();
   if (!requireOnline()) return;
-  const ean = $("#sensitiveAdminEan").value.trim();
-  const name = $("#sensitiveAdminName").value.trim();
-  const { error } = await db.from("sensitive_products").insert({ ean, name, created_by: user.id });
-  if (error) return report(error, "Nie udało się dodać produktu wrażliwego.");
-  el.sensitiveAdminForm.reset();
+  el.sensitiveAdminError.textContent = "";
+  const editing = state.sensitiveProducts.find((product) => product.id === el.sensitiveAdminEditingId.value);
+  const ean = el.sensitiveAdminEan.value.trim();
+  const name = el.sensitiveAdminName.value.trim();
+  const image = el.sensitiveAdminImage.files[0];
+  if (!ean || !name) return el.sensitiveAdminError.textContent = "Podaj kod EAN i nazwę produktu.";
+  if (state.sensitiveProducts.some((product) => product.id !== editing?.id && product.ean === ean)) return el.sensitiveAdminError.textContent = "Produkt z tym kodem EAN już istnieje.";
+  if (image && !["image/jpeg", "image/png", "image/webp"].includes(image.type)) return el.sensitiveAdminError.textContent = "Zdjęcie musi być plikiem JPEG, PNG lub WebP.";
+  if (image && image.size > 5 * 1024 * 1024) return el.sensitiveAdminError.textContent = "Zdjęcie może mieć maksymalnie 5 MB.";
+
+  let uploadedPath = "";
+  let imagePath = editing?.image_path || null;
+  if (image) {
+    const extension = image.type === "image/png" ? "png" : image.type === "image/webp" ? "webp" : "jpg";
+    uploadedPath = `${crypto.randomUUID()}.${extension}`;
+    const upload = await db.storage.from("sensitive-product-images").upload(uploadedPath, image, { contentType: image.type, upsert: false });
+    if (upload.error) return report(upload.error, "Nie udało się przesłać zdjęcia.");
+    imagePath = uploadedPath;
+  } else if (editing && el.sensitiveRemoveImage.checked) imagePath = null;
+
+  const payload = { ean, name, image_path: imagePath };
+  const result = editing
+    ? await db.from("sensitive_products").update(payload).eq("id", editing.id)
+    : await db.from("sensitive_products").insert({ ...payload, created_by: user.id });
+  if (result.error) {
+    if (uploadedPath) await db.storage.from("sensitive-product-images").remove([uploadedPath]);
+    return report(result.error, editing ? "Nie udało się zapisać zmian produktu." : "Nie udało się dodać produktu wrażliwego.");
+  }
+  if (editing?.image_path && editing.image_path !== imagePath) {
+    const removal = await db.storage.from("sensitive-product-images").remove([editing.image_path]);
+    if (removal.error) report(removal.error, "Produkt zapisano, ale nie udało się usunąć starego zdjęcia.");
+  }
+  resetSensitiveAdminForm();
   await loadData();
 }
 
-async function editSensitiveProduct(product) {
-  if (!requireOnline()) return;
-  const name = prompt("Nowa nazwa produktu:", product.name)?.trim();
-  if (!name) return;
-  const { error } = await db.from("sensitive_products").update({ name }).eq("id", product.id);
-  if (error) return report(error, "Nie udało się zmienić produktu.");
-  await loadData();
+function editSensitiveProduct(product) {
+  el.sensitiveAdminEditingId.value = product.id;
+  el.sensitiveAdminEan.value = product.ean;
+  el.sensitiveAdminName.value = product.name;
+  el.sensitiveAdminImage.value = "";
+  el.sensitiveRemoveImage.checked = false;
+  el.sensitiveRemoveImageLabel.classList.toggle("hidden", !product.image_path);
+  el.sensitiveAdminSubmit.textContent = "Zapisz zmiany";
+  el.sensitiveAdminCancel.classList.remove("hidden");
+  el.sensitiveAdminError.textContent = "";
+  el.sensitiveAdminEan.focus();
+}
+
+function resetSensitiveAdminForm() {
+  el.sensitiveAdminForm.reset();
+  el.sensitiveAdminEditingId.value = "";
+  el.sensitiveAdminSubmit.textContent = "Dodaj";
+  el.sensitiveAdminCancel.classList.add("hidden");
+  el.sensitiveRemoveImageLabel.classList.add("hidden");
+  el.sensitiveAdminError.textContent = "";
 }
 
 async function deleteSensitiveProduct(product) {
   if (!requireOnline() || !confirm(`Usunąć „${product.name}” z listy produktów wrażliwych?`)) return;
   const { error } = await db.from("sensitive_products").delete().eq("id", product.id);
   if (error) return report(error, "Nie udało się usunąć produktu.");
+  if (product.image_path) {
+    const removal = await db.storage.from("sensitive-product-images").remove([product.image_path]);
+    if (removal.error) report(removal.error, "Produkt usunięto, ale nie udało się usunąć jego zdjęcia.");
+  }
+  if (el.sensitiveAdminEditingId.value === product.id) resetSensitiveAdminForm();
   await loadData();
 }
 
@@ -756,10 +865,9 @@ async function migrateLegacy() {
 function exportBackup() { const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), profile, state }, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `spisownik-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href); }
 function exportCsv() { const inventory = activeInventory(); if (!inventory) return; const esc = (v) => `"${String(v).replaceAll('"', '""')}"`; const rows = [["Sklep", storeName(activeStoreId)], ["Nazwa spisu", inventory.name], [], ["EAN / DAN", "Nazwa", "Kategoria", "Ilość", "Cena"], ...activeItems().map((x) => [x.ean, x.name, categoryName(x.category_id), x.quantity, x.price])]; const blob = new Blob([`\uFEFF${rows.map((r) => r.map(esc).join(";")).join("\r\n")}`], { type: "text/csv;charset=utf-8" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${inventory.name}.csv`; a.click(); URL.revokeObjectURL(a.href); }
 
-async function startScanner(target = "inventory") {
+async function startScanner() {
   if (!window.ZXingBrowser?.BrowserMultiFormatReader) return showToast("Skaner nie jest dostępny.");
-  scannerTarget = target;
-  try { el.scannerDialog.showModal(); const reader = new ZXingBrowser.BrowserMultiFormatReader(); scannerControls = await reader.decodeFromVideoDevice(undefined, el.scannerVideo, (result) => { const value = result?.getText?.(); if (value) { if (scannerTarget === "sensitive") { el.sensitiveEan.value = value; stopScanner(); resolveSensitiveEan(); } else { el.ean.value = value; stopScanner(); resolveEan(); } } }); } catch { stopScanner(); showToast("Nie udało się uruchomić aparatu."); }
+  try { el.scannerDialog.showModal(); const reader = new ZXingBrowser.BrowserMultiFormatReader(); scannerControls = await reader.decodeFromVideoDevice(undefined, el.scannerVideo, (result) => { const value = result?.getText?.(); if (value) { el.ean.value = value; stopScanner(); resolveEan(); } }); } catch { stopScanner(); showToast("Nie udało się uruchomić aparatu."); }
 }
 function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.scannerVideo.srcObject?.getTracks().forEach((x) => x.stop()); el.scannerVideo.srcObject = null; if (el.scannerDialog.open) el.scannerDialog.close(); }
 
@@ -773,7 +881,23 @@ el.inventoryTabButton.onclick = () => { activeView = "inventories"; renderWorksp
 el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspace(); renderSensitiveProducts(); };
 el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
 el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
-$("#requestCategoryButton").onclick = async () => { const value = $("#newCategoryName").value.trim(); if (!value) return; $("#newCategoryName").value = ""; const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single(); if (error) return report(error); if (isAdmin()) { const result = await db.rpc("review_category_request", { target_request: data.id, approve: true }); if (result.error) return report(result.error); } else showToast("Zmiana czeka na zatwierdzenie."); await loadData(); };
+el.sensitiveAdminCancel.onclick = resetSensitiveAdminForm;
+$("#requestCategoryButton").onclick = async () => {
+  const value = $("#newCategoryName").value.trim();
+  if (!value) return;
+  $("#newCategoryName").value = "";
+  const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single();
+  if (error) return report(error);
+  if (isAdmin()) {
+    const result = await db.rpc("review_category_request", { target_request: data.id, approve: true });
+    if (result.error) return report(result.error);
+    showToast("Kategoria została dodana.");
+    try { await refreshCategoryData(); } catch (refreshError) { report(refreshError, "Kategoria została dodana, ale nie udało się odświeżyć listy."); }
+  } else {
+    showToast("Zmiana czeka na zatwierdzenie.");
+    await loadData();
+  }
+};
 $("#adminAddStore").onclick = async () => {
   if (!requireOnline()) return;
   const name = $("#adminStoreName").value.trim(), retention_days = Number($("#adminRetention").value);
@@ -791,7 +915,7 @@ $("#logoutButton").onclick = async () => {
   await clearOfflineData(userId);
   await db.auth.signOut({ scope: "local" });
 }; $("#migrateButton").onclick = migrateLegacy; $("#exportBackupButton").onclick = exportBackup; $("#exportCsvButton").onclick = exportCsv;
-$("#scanButton").onclick = () => startScanner("inventory"); $("#scanSensitiveButton").onclick = () => startScanner("sensitive"); $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
+$("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => document.getElementById(button.dataset.close).close());
 $("#themeButton").onclick = () => { const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem(THEME_KEY, theme); };
 window.addEventListener("online", syncPending); window.addEventListener("offline", renderAll);

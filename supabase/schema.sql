@@ -114,6 +114,7 @@ create table public.sensitive_products (
   id uuid primary key default gen_random_uuid(),
   ean text not null unique check (length(trim(ean)) between 1 and 32),
   name text not null check (length(trim(name)) between 1 and 120),
+  image_path text,
   created_at timestamptz not null default now(),
   created_by uuid not null references public.profiles(id)
 );
@@ -259,7 +260,7 @@ $$;
 create or replace function public.review_category_request(target_request uuid, approve boolean)
 returns void language plpgsql security definer set search_path = public
 as $$
-declare req category_requests%rowtype; fallback_id uuid;
+declare req category_requests%rowtype; fallback_id uuid; changed_id uuid;
 begin
   if not is_admin() then raise exception 'Brak uprawnień'; end if;
   if approve is null then raise exception 'Brak decyzji'; end if;
@@ -267,12 +268,15 @@ begin
   if req.id is null then raise exception 'Nie znaleziono zgłoszenia'; end if;
   if approve then
     if req.request_type = 'create' then
-      insert into categories(name) values (trim(req.proposed_name));
+      insert into categories(name) values (trim(req.proposed_name)) returning id into changed_id;
     elsif req.request_type = 'rename' then
-      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback;
+      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback returning id into changed_id;
+      if changed_id is null then raise exception 'Nie znaleziono kategorii lub kategoria jest chroniona'; end if;
     else
       select id into fallback_id from categories where is_fallback;
+      if fallback_id is null then raise exception 'Nie znaleziono kategorii zastępczej Inne'; end if;
       if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie można usunąć kategorii Inne'; end if;
+      if not exists(select 1 from categories where id = req.category_id) then raise exception 'Nie znaleziono kategorii'; end if;
       update catalog_products set category_id = fallback_id where category_id = req.category_id;
       perform set_config('app.allow_inventory_flag', 'true', true);
       update inventory_items set category_id = fallback_id where category_id = req.category_id;
@@ -376,6 +380,23 @@ create policy reminders_self on reminder_views for all using (user_id = auth.uid
 create policy sensitive_products_authenticated_read on sensitive_products for select to authenticated using (true);
 create policy sensitive_products_admin_write on sensitive_products for all to authenticated using (is_admin()) with check (is_admin());
 create policy sensitive_checks_member_read on sensitive_product_checks for select to authenticated using (is_approved_member(store_id));
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('sensitive-product-images', 'sensitive-product-images', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+create policy sensitive_product_images_public_read on storage.objects
+for select using (bucket_id = 'sensitive-product-images');
+create policy sensitive_product_images_admin_insert on storage.objects
+for insert to authenticated with check (bucket_id = 'sensitive-product-images' and public.is_admin());
+create policy sensitive_product_images_admin_update on storage.objects
+for update to authenticated using (bucket_id = 'sensitive-product-images' and public.is_admin())
+with check (bucket_id = 'sensitive-product-images' and public.is_admin());
+create policy sensitive_product_images_admin_delete on storage.objects
+for delete to authenticated using (bucket_id = 'sensitive-product-images' and public.is_admin());
 
 create or replace function public.archive_inventory(target_inventory uuid)
 returns void language plpgsql security definer set search_path = public
