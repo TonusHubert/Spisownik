@@ -20,8 +20,10 @@ const el = {
   formError: $("#formError"), submitButton: $("#submitButton"), cancelEditButton: $("#cancelEditButton"), formTitle: $("#formTitle"),
   lookupStatus: $("#lookupStatus"), searchInput: $("#searchInput"), categoryFilter: $("#categoryFilter"), sortSelect: $("#sortSelect"),
   productList: $("#productList"), productTemplate: $("#productTemplate"), emptyState: $("#emptyState"), storeSettings: $("#storeSettings"),
-  categorySettings: $("#categorySettings"), sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
-  membershipRequests: $("#membershipRequests"), categoryRequests: $("#categoryRequests"), reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"),
+  sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
+  reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"), adminEmployeeSelect: $("#adminEmployeeSelect"),
+  adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminCategoryName: $("#adminCategoryName"),
+  adminCategoryList: $("#adminCategoryList"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
@@ -50,7 +52,7 @@ let scheduledAuthKey = null;
 let activeView = "inventories";
 
 function emptyState() {
-  return { stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], membershipRequests: [], categoryRequests: [], sensitiveProducts: [], sensitiveChecks: [] };
+  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [] };
 }
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
@@ -150,7 +152,7 @@ async function loadData() {
   if (!user) return;
   if (!online()) {
     const cached = await readSnapshot(user.id);
-    if (cached) { state = cached.state; profile = cached.profile; }
+    if (cached) { state = { ...emptyState(), ...cached.state }; profile = cached.profile; }
     chooseActive();
     await refreshPendingCount();
     renderAll();
@@ -163,17 +165,16 @@ async function loadData() {
     ]);
     profile = profiles[0];
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
-    state = { ...emptyState(), stores, memberships: memberships.filter((m) => m.user_id === user.id), categories, inventories, catalog, sensitiveProducts };
+    state = { ...emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
     const inventoryIds = inventories.map((x) => x.id);
     const storeIds = [...approvedStoreIds()];
     const extra = await Promise.all([
       inventoryIds.length ? query("inventory_items", "*", [["in", "inventory_id", inventoryIds]]) : [],
       storeIds.length ? query("store_prices", "*", [["in", "store_id", storeIds]]) : [],
-      isAdmin() ? query("store_memberships", "*, stores(name), profiles!store_memberships_user_id_fkey(email,display_name)", [["eq", "status", "pending"]]) : [],
-      query("category_requests", "*, categories(name)", isAdmin() ? [["eq", "status", "pending"]] : [["eq", "requested_by", user.id]]),
+      isAdmin() ? query("profiles", "*", [["eq", "role", "worker"]]) : [],
       storeIds.length ? query("sensitive_product_checks", "*", [["in", "store_id", storeIds], ["eq", "check_date", localDate()]]) : [],
     ]);
-    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.membershipRequests = extra[2]; state.categoryRequests = extra[3]; state.sensitiveChecks = extra[4];
+    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3];
     applyPending(await readQueue());
     chooseActive();
     await saveSnapshot();
@@ -184,7 +185,7 @@ async function loadData() {
   } catch (error) {
     const cached = await readSnapshot(user.id);
     if (cached) {
-      state = cached.state; profile = cached.profile; chooseActive(); await refreshPendingCount(); renderAll();
+      state = { ...emptyState(), ...cached.state }; profile = cached.profile; chooseActive(); await refreshPendingCount(); renderAll();
       showToast("Nie udało się połączyć z serwerem. Pracujesz na danych lokalnych.");
     } else report(error, "Nie udało się pobrać danych.");
   }
@@ -395,18 +396,8 @@ function row(title, detail, actions = []) {
 
 function renderSettings() {
   el.storeSettings.replaceChildren();
-  for (const store of state.stores.filter((x) => storeMatches(x, el.storeSettingsSearch.value)).sort(compareStores)) {
-    const membership = state.memberships.find((m) => m.store_id === store.id);
-    const status = membership?.status;
-    const actions = [];
-    if (!status || status === "rejected") actions.push(["Poproś o dostęp", () => requestMembership(store.id)]);
-    if (status === "approved") actions.push(["Opuść", () => leaveStore(store.id), true]);
-    el.storeSettings.append(row(store.name, status === "approved" ? `Dostęp aktywny · archiwum ${store.retention_days} dni` : status === "pending" ? "Oczekuje na zatwierdzenie" : status === "rejected" ? "Prośba odrzucona" : "Brak dostępu", actions));
-  }
-  el.categorySettings.replaceChildren();
-  for (const category of state.categories) {
-    const actions = category.is_fallback ? [] : [["Zmień", () => requestCategory("rename", category)], ["Usuń", () => requestCategory("delete", category), true]];
-    el.categorySettings.append(row(category.name, category.is_fallback ? "Kategoria chroniona" : "Kategoria globalna", actions));
+  for (const store of state.stores.filter((x) => approvedStoreIds().has(x.id) && storeMatches(x, el.storeSettingsSearch.value)).sort(compareStores)) {
+    el.storeSettings.append(row(store.name, `Dostęp aktywny · archiwum ${store.retention_days} dni`));
   }
   el.sessionSettings.replaceChildren();
   for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "active").sort((a, b) => new Date(b.created_at) - new Date(a.created_at))) {
@@ -496,8 +487,26 @@ function renderAdmin() {
     wrapper.querySelector(".danger-button").onclick = () => adminDeleteStore(store);
     return wrapper;
   }));
-  el.membershipRequests.replaceChildren(...state.membershipRequests.map((m) => row(m.profiles?.display_name || m.profiles?.email || m.user_id, m.stores?.name || storeName(m.store_id), [["Zatwierdź", () => reviewMembership(m, "approved")], ["Odrzuć", () => reviewMembership(m, "rejected"), true]])));
-  el.categoryRequests.replaceChildren(...state.categoryRequests.filter((r) => r.status === "pending").map((r) => row(`${r.request_type === "create" ? "Dodaj" : r.request_type === "rename" ? "Zmień" : "Usuń"}: ${r.proposed_name || r.categories?.name}`, "Oczekuje na decyzję", [["Zatwierdź", (event) => reviewCategory(r.id, true, event.currentTarget)], ["Odrzuć", (event) => reviewCategory(r.id, false, event.currentTarget), true]])));
+  const selectedEmployee = el.adminEmployeeSelect.value;
+  const selectedStore = el.adminMembershipStore.value;
+  const workers = [...state.profiles].sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email, "pl"));
+  el.adminEmployeeSelect.replaceChildren(new Option("Wybierz pracownika", ""), ...workers.map((worker) => new Option(worker.display_name || worker.email, worker.id)));
+  el.adminEmployeeSelect.value = workers.some((worker) => worker.id === selectedEmployee) ? selectedEmployee : "";
+  el.adminMembershipStore.replaceChildren(new Option("Wybierz sklep", ""), ...[...state.stores].sort(compareStores).map((store) => new Option(store.name, store.id)));
+  el.adminMembershipStore.value = state.stores.some((store) => store.id === selectedStore) ? selectedStore : "";
+  const memberships = state.memberships.filter((membership) =>
+    membership.status === "approved" && state.profiles.some((profileItem) => profileItem.id === membership.user_id)
+  ).sort((a, b) => {
+    const first = state.profiles.find((profileItem) => profileItem.id === a.user_id);
+    const second = state.profiles.find((profileItem) => profileItem.id === b.user_id);
+    return (first?.display_name || first?.email || "").localeCompare(second?.display_name || second?.email || "", "pl") || storeName(a.store_id).localeCompare(storeName(b.store_id), "pl");
+  });
+  el.adminMembershipList.replaceChildren(...memberships.map((membership) => {
+    const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
+    return row(worker?.display_name || worker?.email || membership.user_id, storeName(membership.store_id), [["Usuń", () => adminRemoveMembership(membership), true]]);
+  }));
+  el.adminCategoryList.replaceChildren(...[...state.categories].sort((a, b) => a.name.localeCompare(b.name, "pl")).map((category) =>
+    row(category.name, category.is_fallback ? "Kategoria chroniona" : "Kategoria globalna", category.is_fallback ? [] : [["Zmień", () => adminRenameCategory(category)], ["Usuń", () => adminDeleteCategory(category), true]])));
   el.sensitiveAdminList.replaceChildren(...state.sensitiveProducts.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((product) =>
     row(product.name, `EAN: ${product.ean}${product.image_path ? " · zdjęcie dodane" : " · bez zdjęcia"}`, [["Edytuj", () => editSensitiveProduct(product)], ["Usuń", () => deleteSensitiveProduct(product), true]])));
 }
@@ -530,57 +539,65 @@ function scheduleAuth(session) {
   setTimeout(() => onAuth(session).catch((error) => report(error, "Nie udało się uruchomić aplikacji.")), 0);
 }
 
-async function requestMembership(storeId) { if (!requireOnline()) return; const { error } = await db.rpc("request_store_membership", { target_store: storeId }); if (error) return report(error); showToast("Prośba została wysłana."); await loadData(); }
-async function leaveStore(storeId) { if (!requireOnline() || !confirm("Opuścić ten sklep?")) return; const { error } = await db.rpc("leave_store", { target_store: storeId }); if (error) return report(error); await loadData(); }
-async function reviewMembership(membership, decision) { const { error } = await db.rpc("review_membership", { target_store: membership.store_id, target_user: membership.user_id, decision }); if (error) return report(error); await loadData(); }
-
-async function requestCategory(type, category = null) {
-  if (!requireOnline()) return;
-  let proposedName = null;
-  if (type !== "delete") { proposedName = prompt(type === "create" ? "Nazwa nowej kategorii:" : "Nowa nazwa kategorii:", category?.name || "")?.trim(); if (!proposedName) return; }
-  const { data, error } = await db.from("category_requests").insert({ request_type: type, category_id: category?.id || null, proposed_name: proposedName, requested_by: user.id }).select().single();
-  if (error) return report(error);
-  if (isAdmin()) {
-    const result = await db.rpc("review_category_request", { target_request: data.id, approve: true });
-    if (result.error) return report(result.error);
-    showToast("Kategoria została zmieniona.");
-    try { await refreshCategoryData(); } catch (refreshError) { report(refreshError, "Kategoria została zmieniona, ale nie udało się odświeżyć listy."); }
-  } else {
-    showToast("Zmiana czeka na zatwierdzenie administratora.");
-    await loadData();
-  }
-}
-async function reviewCategory(id, approve, button = null) {
-  if (!requireOnline()) return;
-  const buttons = button ? [...button.closest(".row-actions").querySelectorAll("button")] : [];
-  buttons.forEach((item) => { item.disabled = true; });
-  if (button) button.textContent = "Zapisywanie…";
-  const { error } = await db.rpc("review_category_request", { target_request: id, approve });
-  if (error) {
-    buttons.forEach((item) => { item.disabled = false; });
-    if (button) button.textContent = approve ? "Zatwierdź" : "Odrzuć";
-    return report(error, "Nie udało się rozpatrzyć zgłoszenia kategorii.");
-  }
-  showToast(approve ? "Kategoria została zatwierdzona." : "Propozycja została odrzucona.");
-  try {
-    await refreshCategoryData();
-  } catch (refreshError) {
-    report(refreshError, "Decyzja została zapisana, ale nie udało się odświeżyć kategorii.");
-  }
-}
-
 async function refreshCategoryData() {
-  const [categories, categoryRequests] = await Promise.all([
-    query("categories", "*"),
-    query("category_requests", "*, categories(name)", isAdmin() ? [["eq", "status", "pending"]] : [["eq", "requested_by", user.id]]),
-  ]);
-  state.categories = categories;
-  state.categoryRequests = categoryRequests;
+  state.categories = await query("categories", "*");
   await saveSnapshot();
   renderCategories();
   renderInventory();
-  renderSettings();
   renderAdmin();
+}
+
+async function adminAddMembership() {
+  if (!requireOnline()) return;
+  const userId = el.adminEmployeeSelect.value;
+  const storeId = el.adminMembershipStore.value;
+  if (!userId || !storeId) return showToast("Wybierz pracownika i sklep.");
+  const { error } = await db.from("store_memberships").upsert({
+    user_id: userId, store_id: storeId, status: "approved", requested_at: now(), reviewed_at: now(), reviewed_by: user.id,
+  });
+  if (error) return report(error);
+  showToast("Pracownik został przypisany do sklepu.");
+  await loadData();
+}
+
+async function adminRemoveMembership(membership) {
+  const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
+  if (!requireOnline() || !confirm(`Usunąć przypisanie „${worker?.display_name || worker?.email || membership.user_id}” do sklepu „${storeName(membership.store_id)}”?`)) return;
+  const { error } = await db.from("store_memberships").delete().eq("user_id", membership.user_id).eq("store_id", membership.store_id);
+  if (error) return report(error);
+  showToast("Przypisanie zostało usunięte.");
+  await loadData();
+}
+
+async function adminAddCategory() {
+  if (!requireOnline()) return;
+  const name = el.adminCategoryName.value.trim();
+  if (!name) return;
+  if (state.categories.some((category) => category.name.toLocaleLowerCase("pl") === name.toLocaleLowerCase("pl"))) return showToast("Kategoria o tej nazwie już istnieje.");
+  const { error } = await db.from("categories").insert({ name });
+  if (error) return report(error);
+  el.adminCategoryName.value = "";
+  showToast("Kategoria została dodana.");
+  await refreshCategoryData();
+}
+
+async function adminRenameCategory(category) {
+  if (!requireOnline()) return;
+  const name = prompt("Nowa nazwa kategorii:", category.name)?.trim();
+  if (!name || name === category.name) return;
+  if (state.categories.some((item) => item.id !== category.id && item.name.toLocaleLowerCase("pl") === name.toLocaleLowerCase("pl"))) return showToast("Kategoria o tej nazwie już istnieje.");
+  const { error } = await db.from("categories").update({ name }).eq("id", category.id);
+  if (error) return report(error);
+  showToast("Nazwa kategorii została zmieniona.");
+  await refreshCategoryData();
+}
+
+async function adminDeleteCategory(category) {
+  if (!requireOnline() || !confirm(`Usunąć kategorię „${category.name}”? Wszystkie przypisane produkty zostaną przeniesione do „Inne”.`)) return;
+  const { error } = await db.rpc("admin_delete_category", { target_category: category.id });
+  if (error) return report(error);
+  showToast("Kategoria została usunięta, a produkty przeniesione do „Inne”.");
+  await loadData();
 }
 
 async function adminEditStore(event, store) {
@@ -882,22 +899,8 @@ el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspac
 el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
 el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
 el.sensitiveAdminCancel.onclick = resetSensitiveAdminForm;
-$("#requestCategoryButton").onclick = async () => {
-  const value = $("#newCategoryName").value.trim();
-  if (!value) return;
-  $("#newCategoryName").value = "";
-  const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single();
-  if (error) return report(error);
-  if (isAdmin()) {
-    const result = await db.rpc("review_category_request", { target_request: data.id, approve: true });
-    if (result.error) return report(result.error);
-    showToast("Kategoria została dodana.");
-    try { await refreshCategoryData(); } catch (refreshError) { report(refreshError, "Kategoria została dodana, ale nie udało się odświeżyć listy."); }
-  } else {
-    showToast("Zmiana czeka na zatwierdzenie.");
-    await loadData();
-  }
-};
+$("#adminAddMembership").onclick = adminAddMembership;
+$("#adminAddCategory").onclick = adminAddCategory;
 $("#adminAddStore").onclick = async () => {
   if (!requireOnline()) return;
   const name = $("#adminStoreName").value.trim(), retention_days = Number($("#adminRetention").value);

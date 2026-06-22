@@ -5,10 +5,9 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 ## Funkcje
 
 - logowanie e-mailem i hasłem z rolami administratora oraz pracownika,
-- publiczna lista sklepów i prośby pracowników o przypisanie,
-- akceptowanie członkostw przez administratora,
+- przypisywanie zarejestrowanych pracowników do sklepów przez administratora,
 - wspólne spisy, globalny katalog produktów i ceny osobne dla sklepów,
-- propozycje zmian kategorii zatwierdzane przez administratora,
+- bezpośrednie tworzenie, edycja i usuwanie kategorii przez administratora,
 - ręczne kończenie spisów, archiwum oraz oznaczanie flag przy każdej pozycji,
 - niezależne oznaczanie archiwalnych pozycji jako zweryfikowane,
 - codzienna kontrola globalnej listy produktów wrażliwych z limitem 2 sztuk na półce, zdjęciami i kodami kreskowymi gotowymi do skanowania,
@@ -23,7 +22,9 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 
 Jeśli aktualizujesz istniejącą instalację, wykonaj zamiast tego plik `supabase/offline_sync_migration.sql`.
 
-Migracja tworzy również publiczny bucket `sensitive-product-images`, dodaje zdjęcia produktów wrażliwych i aktualizuje funkcję zatwierdzania kategorii.
+Migracja tworzy również publiczny bucket `sensitive-product-images`, dodaje zdjęcia produktów wrażliwych oraz włącza bezpośrednie zarządzanie kategoriami i przypisaniami przez administratora.
+
+Przy usunięciu kategorii wszystkie przypisane do niej produkty są automatycznie przenoszone do chronionej kategorii `Inne`.
 
 Migracja udostępnia administratorowi funkcję do bezpiecznego usunięcia wyłącznie pustego aktywnego spisu po UUID:
 

@@ -114,7 +114,6 @@
       <div class="scanner-header"><div><p class="eyebrow">Konto i konfiguracja</p><h2>Ustawienia</h2></div><button class="icon-button" data-close="settingsDialog">×</button></div>
       <p id="profileSummary"></p>
       <section class="settings-section"><h3>Sklepy</h3><div class="search-field"><span>⌕</span><input id="storeSettingsSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="storeSettings"></div></section>
-      <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="newCategoryName" maxlength="80" placeholder="Nazwa nowej kategorii" data-online-only /><button class="ghost-button" id="requestCategoryButton" data-online-only>Zgłoś</button></div><div class="session-list" id="categorySettings"></div></section>
       <section class="settings-section"><h3>Aktywne spisy</h3><div class="session-list" id="sessionSettings"></div></section>
       <section class="settings-section"><h3>Archiwum spisów</h3><div class="session-list" id="archiveSettings"></div></section>
       <section class="settings-section"><h3>Dane lokalne</h3><p id="migrationText">Możesz jednorazowo przenieść dane ze starszej wersji zapisane na tym urządzeniu.</p><div class="form-actions"><button class="ghost-button" id="migrateButton">Importuj dane lokalne</button><button class="ghost-button" id="exportBackupButton">Eksport JSON</button></div></section>
@@ -124,8 +123,8 @@
     <dialog id="adminDialog">
       <div class="scanner-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
       <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
-      <section class="settings-section"><h3>Prośby o przypisanie</h3><div class="session-list" id="membershipRequests"></div></section>
-      <section class="settings-section"><h3>Zmiany kategorii</h3><div class="session-list" id="categoryRequests"></div></section>
+      <section class="settings-section"><h3>Przypisania pracowników</h3><div class="form-actions"><select id="adminEmployeeSelect" aria-label="Pracownik" data-online-only></select><select id="adminMembershipStore" aria-label="Sklep" data-online-only></select><button class="primary-button" id="adminAddMembership" data-online-only>Przypisz</button></div><div class="session-list" id="adminMembershipList"></div></section>
+      <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="adminCategoryName" maxlength="80" placeholder="Nazwa kategorii" data-online-only /><button class="primary-button" id="adminAddCategory" data-online-only>Dodaj</button></div><div class="session-list" id="adminCategoryList"></div></section>
       <section class="settings-section">
         <h3>Produkty wrażliwe</h3>
         <form class="sensitive-admin-form" id="sensitiveAdminForm">
@@ -155,6 +154,6 @@
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=10" defer></script>
+    <script src="app.js?v=11" defer></script>
   </body>
 </html>

@@ -313,33 +313,6 @@ create or replace function public.mark_expired_inventories()
 returns integer language sql security definer set search_path = public
 as $$ select 0 $$;
 
-create or replace function public.review_category_request(target_request uuid, approve boolean)
-returns void language plpgsql security definer set search_path = public
-as $$
-declare req category_requests%rowtype; fallback_id uuid;
-begin
-  if not is_admin() then raise exception 'Brak uprawnien'; end if;
-  select * into req from category_requests where id = target_request and status = 'pending' for update;
-  if req.id is null then raise exception 'Nie znaleziono zgloszenia'; end if;
-  if approve then
-    if req.request_type = 'create' then
-      insert into categories(name) values (trim(req.proposed_name));
-    elsif req.request_type = 'rename' then
-      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback;
-    else
-      select id into fallback_id from categories where is_fallback;
-      if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie mozna usunac kategorii Inne'; end if;
-      update catalog_products set category_id = fallback_id where category_id = req.category_id;
-      perform set_config('app.allow_inventory_flag', 'true', true);
-      update inventory_items set category_id = fallback_id where category_id = req.category_id;
-      delete from categories where id = req.category_id;
-    end if;
-  end if;
-  update category_requests set status = case when approve then 'approved' else 'rejected' end,
-    reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
-end;
-$$;
-
 -- Weryfikacja pozycji, produkty wrażliwe i bezpieczna naprawa pustego spisu.
 alter table public.inventory_items add column if not exists verified boolean not null default false;
 
@@ -373,34 +346,6 @@ using (is_admin()) with check (is_admin());
 drop policy if exists sensitive_checks_member_read on public.sensitive_product_checks;
 create policy sensitive_checks_member_read on public.sensitive_product_checks for select to authenticated
 using (is_approved_member(store_id));
-
-create or replace function public.review_category_request(target_request uuid, approve boolean)
-returns void language plpgsql security definer set search_path = public
-as $$
-declare req category_requests%rowtype; fallback_id uuid;
-begin
-  if not is_admin() then raise exception 'Brak uprawnien'; end if;
-  if approve is null then raise exception 'Brak decyzji'; end if;
-  select * into req from category_requests where id = target_request and status = 'pending' for update;
-  if req.id is null then raise exception 'Nie znaleziono zgloszenia'; end if;
-  if approve then
-    if req.request_type = 'create' then
-      insert into categories(name) values (trim(req.proposed_name));
-    elsif req.request_type = 'rename' then
-      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback;
-    else
-      select id into fallback_id from categories where is_fallback;
-      if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie mozna usunac kategorii Inne'; end if;
-      update catalog_products set category_id = fallback_id where category_id = req.category_id;
-      perform set_config('app.allow_inventory_flag', 'true', true);
-      update inventory_items set category_id = fallback_id where category_id = req.category_id;
-      delete from categories where id = req.category_id;
-    end if;
-  end if;
-  update category_requests set status = case when approve then 'approved' else 'rejected' end,
-    reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
-end;
-$$;
 
 create or replace function public.set_inventory_item_verified(target_item uuid, verified_value boolean)
 returns void language plpgsql security definer set search_path = public
@@ -444,16 +389,14 @@ begin
 end;
 $$;
 
-revoke all on function public.review_category_request(uuid, boolean) from public, anon;
 revoke all on function public.set_inventory_item_verified(uuid, boolean) from public, anon;
 revoke all on function public.submit_sensitive_product_check(uuid, uuid, integer) from public, anon;
 revoke all on function public.delete_empty_active_inventory(uuid) from public, anon;
-grant execute on function public.review_category_request(uuid, boolean) to authenticated;
 grant execute on function public.set_inventory_item_verified(uuid, boolean) to authenticated;
 grant execute on function public.submit_sensitive_product_check(uuid, uuid, integer) to authenticated;
 grant execute on function public.delete_empty_active_inventory(uuid) to authenticated;
 
--- Zdjęcia produktów wrażliwych oraz atomowa naprawa zatwierdzania kategorii.
+-- Zdjęcia produktów wrażliwych.
 alter table public.sensitive_products add column if not exists image_path text;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -477,36 +420,35 @@ drop policy if exists sensitive_product_images_admin_delete on storage.objects;
 create policy sensitive_product_images_admin_delete on storage.objects
 for delete to authenticated using (bucket_id = 'sensitive-product-images' and public.is_admin());
 
-create or replace function public.review_category_request(target_request uuid, approve boolean)
+-- Bezpośrednie zarządzanie kategoriami i przypisaniami przez administratora.
+delete from public.store_memberships where status <> 'approved';
+
+drop function if exists public.review_membership(uuid, uuid, public.membership_status);
+drop function if exists public.leave_store(uuid);
+drop function if exists public.request_store_membership(uuid);
+drop function if exists public.review_category_request(uuid, boolean);
+drop table if exists public.category_requests;
+drop type if exists public.category_request_type;
+drop type if exists public.request_status;
+
+drop policy if exists memberships_self_request on public.store_memberships;
+
+create or replace function public.admin_delete_category(target_category uuid)
 returns void language plpgsql security definer set search_path = public
 as $$
-declare req category_requests%rowtype; fallback_id uuid; changed_id uuid;
+declare fallback_id uuid;
 begin
   if not is_admin() then raise exception 'Brak uprawnien'; end if;
-  if approve is null then raise exception 'Brak decyzji'; end if;
-  select * into req from category_requests where id = target_request and status = 'pending' for update;
-  if req.id is null then raise exception 'Nie znaleziono zgloszenia'; end if;
-  if approve then
-    if req.request_type = 'create' then
-      insert into categories(name) values (trim(req.proposed_name)) returning id into changed_id;
-    elsif req.request_type = 'rename' then
-      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback returning id into changed_id;
-      if changed_id is null then raise exception 'Nie znaleziono kategorii lub kategoria jest chroniona'; end if;
-    else
-      select id into fallback_id from categories where is_fallback;
-      if fallback_id is null then raise exception 'Nie znaleziono kategorii zastepczej Inne'; end if;
-      if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie mozna usunac kategorii Inne'; end if;
-      if not exists(select 1 from categories where id = req.category_id) then raise exception 'Nie znaleziono kategorii'; end if;
-      update catalog_products set category_id = fallback_id where category_id = req.category_id;
-      perform set_config('app.allow_inventory_flag', 'true', true);
-      update inventory_items set category_id = fallback_id where category_id = req.category_id;
-      delete from categories where id = req.category_id;
-    end if;
-  end if;
-  update category_requests set status = case when approve then 'approved' else 'rejected' end,
-    reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
+  select id into fallback_id from categories where is_fallback;
+  if fallback_id is null then raise exception 'Nie znaleziono kategorii zastepczej Inne'; end if;
+  if target_category = fallback_id then raise exception 'Nie mozna usunac kategorii Inne'; end if;
+  if not exists(select 1 from categories where id = target_category) then raise exception 'Nie znaleziono kategorii'; end if;
+  update catalog_products set category_id = fallback_id where category_id = target_category;
+  perform set_config('app.allow_inventory_flag', 'true', true);
+  update inventory_items set category_id = fallback_id where category_id = target_category;
+  delete from categories where id = target_category;
 end;
 $$;
 
-revoke all on function public.review_category_request(uuid, boolean) from public, anon;
-grant execute on function public.review_category_request(uuid, boolean) to authenticated;
+revoke all on function public.admin_delete_category(uuid) from public, anon;
+grant execute on function public.admin_delete_category(uuid) to authenticated;
