@@ -10,6 +10,8 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 - wspólne spisy, globalny katalog produktów i ceny osobne dla sklepów,
 - propozycje zmian kategorii zatwierdzane przez administratora,
 - ręczne kończenie spisów, archiwum oraz oznaczanie flag przy każdej pozycji,
+- niezależne oznaczanie archiwalnych pozycji jako zweryfikowane,
+- codzienna kontrola globalnej listy produktów wrażliwych z limitem 2 sztuk na półce,
 - codzienne przypomnienie wewnątrz aplikacji,
 - lokalny cache danych do odczytu bez internetu,
 - jednorazowy import danych z wersji lokalnej oraz eksport JSON i CSV.
@@ -20,6 +22,14 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 2. Otwórz **SQL Editor** i wykonaj cały plik `supabase/schema.sql`.
 
 Jeśli aktualizujesz istniejącą instalację, wykonaj zamiast tego plik `supabase/offline_sync_migration.sql`.
+
+Migracja udostępnia administratorowi funkcję do bezpiecznego usunięcia wyłącznie pustego aktywnego spisu po UUID:
+
+```sql
+select public.delete_empty_active_inventory('UUID-SPISU');
+```
+
+Funkcja odrzuci operację, jeśli wskazany spis nie jest aktywny, nie jest pusty albo wykonujący nie jest administratorem. Nie należy usuwać spisów według nazwy ani daty.
 3. Załóż pierwsze konto w aplikacji, a następnie nadaj mu rolę administratora:
 
 ```sql

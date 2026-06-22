@@ -339,3 +339,116 @@ begin
     reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
 end;
 $$;
+
+-- Weryfikacja pozycji, produkty wrażliwe i bezpieczna naprawa pustego spisu.
+alter table public.inventory_items add column if not exists verified boolean not null default false;
+
+create table if not exists public.sensitive_products (
+  id uuid primary key default gen_random_uuid(),
+  ean text not null unique check (length(trim(ean)) between 1 and 32),
+  name text not null check (length(trim(name)) between 1 and 120),
+  created_at timestamptz not null default now(),
+  created_by uuid not null references public.profiles(id)
+);
+
+create table if not exists public.sensitive_product_checks (
+  id uuid primary key default gen_random_uuid(),
+  store_id uuid not null references public.stores(id) on delete cascade,
+  product_id uuid not null references public.sensitive_products(id) on delete cascade,
+  check_date date not null,
+  quantity integer not null check (quantity >= 0),
+  checked_at timestamptz not null default now(),
+  checked_by uuid not null references public.profiles(id),
+  unique (store_id, product_id, check_date)
+);
+
+alter table public.sensitive_products enable row level security;
+alter table public.sensitive_product_checks enable row level security;
+
+drop policy if exists sensitive_products_authenticated_read on public.sensitive_products;
+create policy sensitive_products_authenticated_read on public.sensitive_products for select to authenticated using (true);
+drop policy if exists sensitive_products_admin_write on public.sensitive_products;
+create policy sensitive_products_admin_write on public.sensitive_products for all to authenticated
+using (is_admin()) with check (is_admin());
+drop policy if exists sensitive_checks_member_read on public.sensitive_product_checks;
+create policy sensitive_checks_member_read on public.sensitive_product_checks for select to authenticated
+using (is_approved_member(store_id));
+
+create or replace function public.review_category_request(target_request uuid, approve boolean)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare req category_requests%rowtype; fallback_id uuid;
+begin
+  if not is_admin() then raise exception 'Brak uprawnien'; end if;
+  if approve is null then raise exception 'Brak decyzji'; end if;
+  select * into req from category_requests where id = target_request and status = 'pending' for update;
+  if req.id is null then raise exception 'Nie znaleziono zgloszenia'; end if;
+  if approve then
+    if req.request_type = 'create' then
+      insert into categories(name) values (trim(req.proposed_name));
+    elsif req.request_type = 'rename' then
+      update categories set name = trim(req.proposed_name) where id = req.category_id and not is_fallback;
+    else
+      select id into fallback_id from categories where is_fallback;
+      if exists(select 1 from categories where id = req.category_id and is_fallback) then raise exception 'Nie mozna usunac kategorii Inne'; end if;
+      update catalog_products set category_id = fallback_id where category_id = req.category_id;
+      perform set_config('app.allow_inventory_flag', 'true', true);
+      update inventory_items set category_id = fallback_id where category_id = req.category_id;
+      delete from categories where id = req.category_id;
+    end if;
+  end if;
+  update category_requests set status = case when approve then 'approved' else 'rejected' end,
+    reviewed_at = now(), reviewed_by = auth.uid() where id = target_request;
+end;
+$$;
+
+create or replace function public.set_inventory_item_verified(target_item uuid, verified_value boolean)
+returns void language plpgsql security definer set search_path = public
+as $$
+begin
+  if verified_value is null then raise exception 'Brak wartosci weryfikacji'; end if;
+  if not exists (
+    select 1 from inventory_items ii join inventories i on i.id = ii.inventory_id
+    where ii.id = target_item and ii.deleted_at is null and i.status = 'archived' and is_approved_member(i.store_id)
+  ) then raise exception 'Brak uprawnien lub spis nie jest w archiwum'; end if;
+  perform set_config('app.allow_inventory_flag', 'true', true);
+  update inventory_items set verified = verified_value, updated_at = now() where id = target_item;
+end;
+$$;
+
+create or replace function public.submit_sensitive_product_check(target_store uuid, target_product uuid, shelf_quantity integer)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare today_warsaw date := timezone('Europe/Warsaw', now())::date;
+begin
+  if not is_approved_member(target_store) then raise exception 'Brak uprawnien do sklepu'; end if;
+  if shelf_quantity is null or shelf_quantity < 0 then raise exception 'Nieprawidlowa liczba sztuk'; end if;
+  if not exists (select 1 from sensitive_products where id = target_product) then raise exception 'Nie znaleziono produktu wrazliwego'; end if;
+  insert into sensitive_product_checks (store_id, product_id, check_date, quantity, checked_at, checked_by)
+  values (target_store, target_product, today_warsaw, shelf_quantity, now(), auth.uid())
+  on conflict (store_id, product_id, check_date) do update
+    set quantity = excluded.quantity, checked_at = excluded.checked_at, checked_by = excluded.checked_by;
+end;
+$$;
+
+create or replace function public.delete_empty_active_inventory(target_inventory uuid)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare target_store uuid;
+begin
+  if not is_admin() then raise exception 'Brak uprawnien'; end if;
+  select store_id into target_store from inventories where id = target_inventory and status = 'active' for update;
+  if target_store is null then raise exception 'Nie znaleziono aktywnego spisu'; end if;
+  if exists (select 1 from inventory_items where inventory_id = target_inventory) then raise exception 'Spis nie jest pusty'; end if;
+  delete from inventories where id = target_inventory and status = 'active';
+end;
+$$;
+
+revoke all on function public.review_category_request(uuid, boolean) from public, anon;
+revoke all on function public.set_inventory_item_verified(uuid, boolean) from public, anon;
+revoke all on function public.submit_sensitive_product_check(uuid, uuid, integer) from public, anon;
+revoke all on function public.delete_empty_active_inventory(uuid) from public, anon;
+grant execute on function public.review_category_request(uuid, boolean) to authenticated;
+grant execute on function public.set_inventory_item_verified(uuid, boolean) to authenticated;
+grant execute on function public.submit_sensitive_product_check(uuid, uuid, integer) to authenticated;
+grant execute on function public.delete_empty_active_inventory(uuid) to authenticated;

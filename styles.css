@@ -821,6 +821,68 @@ dialog::backdrop {
   flex-wrap: wrap;
 }
 
+.workspace-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.workspace-tab {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.workspace-tab.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.sensitive-check-panel {
+  margin-bottom: 14px;
+}
+
+.sensitive-status {
+  min-width: 88px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.sensitive-status.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sensitive-status.alert {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sensitive-card.alert {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 1px #ef4444;
+}
+
+.flag-check,
+.verified-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 .admin-store-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 7rem auto auto;

@@ -48,6 +48,11 @@
           </div>
         </section>
 
+        <nav class="workspace-tabs" aria-label="Widoki aplikacji">
+          <button class="workspace-tab active" id="inventoryTabButton" type="button">Spisy</button>
+          <button class="workspace-tab" id="sensitiveTabButton" type="button">Produkty wrażliwe</button>
+        </nav>
+
         <section class="empty-state hidden" id="noStoresState">
           <h3>Nie masz jeszcze dostępu do sklepu</h3>
           <p>Otwórz ustawienia, wybierz sklep z listy i wyślij prośbę o przypisanie.</p>
@@ -82,6 +87,27 @@
             <div class="empty-state" id="emptyState"><h3>Spis jest jeszcze pusty</h3><p>Dodaj lub zeskanuj pierwszy produkt.</p></div>
           </section>
         </div>
+
+        <section class="hidden" id="sensitiveView">
+          <section class="panel sensitive-check-panel">
+            <div class="section-heading">
+              <div><p class="eyebrow">Kontrola dzienna</p><h2>Produkty wrażliwe</h2></div>
+              <button class="scan-button" id="scanSensitiveButton" type="button">Skanuj EAN</button>
+            </div>
+            <p class="field-note">Sprawdź liczbę sztuk na półce. Dopuszczalne są maksymalnie 2 sztuki.</p>
+            <form id="sensitiveCheckForm" autocomplete="off">
+              <div class="field"><label for="sensitiveEan">Kod EAN</label><input id="sensitiveEan" maxlength="32" required /></div>
+              <div class="field"><label for="sensitiveQuantity">Ilość na półce</label><input id="sensitiveQuantity" type="number" min="0" step="1" required /></div>
+              <button class="primary-button" type="submit">Zapisz kontrolę</button>
+              <p class="form-error" id="sensitiveFormError"></p>
+            </form>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Stan na dziś</p><h2>Lista do sprawdzenia</h2></div><strong id="sensitiveProgress">0 / 0</strong></div>
+            <div class="product-list" id="sensitiveProductList"></div>
+            <div class="empty-state" id="sensitiveEmptyState"><h3>Brak produktów wrażliwych</h3><p>Administrator może dodać je w panelu zarządzania.</p></div>
+          </section>
+        </section>
       </div>
     </main>
 
@@ -101,6 +127,7 @@
       <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
       <section class="settings-section"><h3>Prośby o przypisanie</h3><div class="session-list" id="membershipRequests"></div></section>
       <section class="settings-section"><h3>Zmiany kategorii</h3><div class="session-list" id="categoryRequests"></div></section>
+      <section class="settings-section"><h3>Produkty wrażliwe</h3><form class="form-actions" id="sensitiveAdminForm"><input id="sensitiveAdminEan" maxlength="32" placeholder="Kod EAN" required data-online-only /><input id="sensitiveAdminName" maxlength="120" placeholder="Nazwa produktu" required data-online-only /><button class="primary-button" type="submit" data-online-only>Dodaj</button></form><div class="session-list" id="sensitiveAdminList"></div></section>
     </dialog>
 
     <dialog id="remindersDialog">
@@ -112,10 +139,10 @@
 
     <dialog id="scannerDialog"><div class="scanner-header"><h2>Zeskanuj kod</h2><button class="icon-button" id="closeScannerButton">×</button></div><div class="scanner-frame"><video id="scannerVideo" playsinline muted></video><div class="scan-line"></div></div><p id="scannerMessage">Umieść kod kreskowy wewnątrz ramki.</p></dialog>
     <div class="toast" id="toast"></div>
-    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><label class="flag-check hidden"><input class="flag-checkbox" type="checkbox" /><span>Flaga nadana</span></label><button class="edit-button">Edytuj</button><button class="delete-button">Usuń</button></div></article></template>
+    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><label class="flag-check hidden"><input class="flag-checkbox" type="checkbox" /><span>Flaga nadana</span></label><label class="verified-check hidden"><input class="verified-checkbox" type="checkbox" /><span>Zweryfikowane</span></label><button class="edit-button" type="button">Edytuj</button><button class="delete-button" type="button">Usuń</button></div></article></template>
     <script src="vendor/supabase.min.js" defer></script>
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=8" defer></script>
+    <script src="app.js?v=9" defer></script>
   </body>
 </html>

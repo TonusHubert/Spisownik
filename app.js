@@ -26,6 +26,10 @@ const el = {
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
   toast: $("#toast"), scannerDialog: $("#scannerDialog"), scannerVideo: $("#scannerVideo"), scannerMessage: $("#scannerMessage"),
+  inventoryTabButton: $("#inventoryTabButton"), sensitiveTabButton: $("#sensitiveTabButton"), sensitiveView: $("#sensitiveView"),
+  sensitiveCheckForm: $("#sensitiveCheckForm"), sensitiveEan: $("#sensitiveEan"), sensitiveQuantity: $("#sensitiveQuantity"),
+  sensitiveFormError: $("#sensitiveFormError"), sensitiveProductList: $("#sensitiveProductList"), sensitiveProgress: $("#sensitiveProgress"),
+  sensitiveEmptyState: $("#sensitiveEmptyState"), sensitiveAdminForm: $("#sensitiveAdminForm"), sensitiveAdminList: $("#sensitiveAdminList"),
 };
 
 let signupMode = false;
@@ -40,9 +44,11 @@ let pendingCount = 0;
 let syncing = false;
 let syncError = "";
 let scheduledAuthKey = null;
+let activeView = "inventories";
+let scannerTarget = "inventory";
 
 function emptyState() {
-  return { stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], membershipRequests: [], categoryRequests: [] };
+  return { stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], membershipRequests: [], categoryRequests: [], sensitiveProducts: [], sensitiveChecks: [] };
 }
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
@@ -62,6 +68,7 @@ function missingFlags(inventoryId) { return state.items.filter((x) => x.inventor
 function money(value) { return new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" }).format(Number(value) || 0); }
 function date(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date(value)); }
 function defaultInventoryName() { return `Spis ${new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date())}`; }
+function localDate() { return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Warsaw" }).format(new Date()); }
 function showToast(message) { clearTimeout(toastTimer); el.toast.textContent = message; el.toast.classList.add("visible"); toastTimer = setTimeout(() => el.toast.classList.remove("visible"), 3000); }
 function report(error, fallback = "Nie udało się wykonać operacji.") { console.error(error); showToast(error?.message || fallback); }
 function requireOnline() { if (online()) return true; showToast("Ta operacja wymaga połączenia z internetem."); return false; }
@@ -144,13 +151,13 @@ async function loadData() {
     return;
   }
   try {
-    const [profiles, stores, memberships, categories, inventories, catalog] = await Promise.all([
+    const [profiles, stores, memberships, categories, inventories, catalog, sensitiveProducts] = await Promise.all([
       query("profiles", "*", [["eq", "id", user.id]]), query("stores"), query("store_memberships"),
-      query("categories", "*"), query("inventories", "*"), query("catalog_products", "*"),
+      query("categories", "*"), query("inventories", "*"), query("catalog_products", "*"), query("sensitive_products", "*"),
     ]);
     profile = profiles[0];
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
-    state = { ...emptyState(), stores, memberships: memberships.filter((m) => m.user_id === user.id), categories, inventories, catalog };
+    state = { ...emptyState(), stores, memberships: memberships.filter((m) => m.user_id === user.id), categories, inventories, catalog, sensitiveProducts };
     const inventoryIds = inventories.map((x) => x.id);
     const storeIds = [...approvedStoreIds()];
     const extra = await Promise.all([
@@ -158,8 +165,9 @@ async function loadData() {
       storeIds.length ? query("store_prices", "*", [["in", "store_id", storeIds]]) : [],
       isAdmin() ? query("store_memberships", "*, stores(name), profiles!store_memberships_user_id_fkey(email,display_name)", [["eq", "status", "pending"]]) : [],
       query("category_requests", "*, categories(name)", isAdmin() ? [["eq", "status", "pending"]] : [["eq", "requested_by", user.id]]),
+      storeIds.length ? query("sensitive_product_checks", "*", [["in", "store_id", storeIds], ["eq", "check_date", localDate()]]) : [],
     ]);
-    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.membershipRequests = extra[2]; state.categoryRequests = extra[3];
+    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.membershipRequests = extra[2]; state.categoryRequests = extra[3]; state.sensitiveChecks = extra[4];
     applyPending(await readQueue());
     chooseActive();
     await saveSnapshot();
@@ -189,19 +197,61 @@ function applyOperation(operation) {
     else upsertLocal(state.items, value);
   }
   if (operation.type === "flag_update") upsertLocal(state.items, value);
+  if (operation.type === "verified_update") upsertLocal(state.items, value);
 }
 function applyPending(operations) { operations.forEach(applyOperation); }
+
+function operationInventoryId(operation) {
+  return operation.type === "inventory_upsert" ? operation.payload.id : operation.payload.inventory_id;
+}
+
+async function discardStaleArchivedOperations(inventoryId) {
+  const operations = await readQueue();
+  const stale = operations.filter((operation) =>
+    operationInventoryId(operation) === inventoryId && ["inventory_upsert", "item_upsert"].includes(operation.type));
+  await Promise.all(stale.map((operation) => offlineStore("queue", "readwrite", (store) => store.delete(operation.id))));
+  pendingCount = Math.max(0, pendingCount - stale.length);
+  return stale;
+}
+
+async function queuedOperationsForInventory(inventoryId) {
+  return (await readQueue()).filter((operation) => operationInventoryId(operation) === inventoryId);
+}
+
+async function discardOperationsForInventory(inventoryId) {
+  const operations = await queuedOperationsForInventory(inventoryId);
+  await Promise.all(operations.map((operation) => offlineStore("queue", "readwrite", (store) => store.delete(operation.id))));
+  await refreshPendingCount();
+}
 
 async function syncPending() {
   if (!online() || syncing || !user) return;
   syncing = true; syncError = ""; renderSyncStatus();
   const operations = await readQueue();
+  const discardedIds = new Set();
   pendingCount = operations.length;
   for (const operation of operations) {
-    const rpc = operation.type === "inventory_upsert" ? "sync_inventory" : operation.type === "flag_update" ? "set_inventory_item_flag" : "sync_inventory_item";
-    const args = operation.type === "flag_update" ? { target_item: operation.payload.id, assigned: operation.payload.flag_assigned } : { payload: operation.payload };
+    if (discardedIds.has(operation.id)) continue;
+    const rpc = operation.type === "inventory_upsert" ? "sync_inventory"
+      : operation.type === "flag_update" ? "set_inventory_item_flag"
+        : operation.type === "verified_update" ? "set_inventory_item_verified"
+          : "sync_inventory_item";
+    const args = operation.type === "flag_update" ? { target_item: operation.payload.id, assigned: operation.payload.flag_assigned }
+      : operation.type === "verified_update" ? { target_item: operation.payload.id, verified_value: operation.payload.verified }
+        : { payload: operation.payload };
     const { error } = await db.rpc(rpc, args);
     if (error) {
+      const inventoryId = operationInventoryId(operation);
+      if (inventoryId && ["inventory_upsert", "item_upsert"].includes(operation.type)) {
+        const { data: serverInventory } = await db.from("inventories").select("status").eq("id", inventoryId).maybeSingle();
+        if (serverInventory?.status === "archived") {
+          const discarded = await discardStaleArchivedOperations(inventoryId);
+          discarded.forEach((item) => discardedIds.add(item.id));
+          showToast(`Odrzucono ${discarded.length} nieaktualnych zmian archiwalnego spisu.`);
+          renderSyncStatus();
+          continue;
+        }
+      }
       syncError = error.message;
       syncing = false;
       renderSyncStatus();
@@ -231,7 +281,7 @@ function renderAll() {
   el.offlineBanner.textContent = "Brak internetu. Zmiany w spisach zostaną zsynchronizowane po odzyskaniu połączenia.";
   el.profileSummary.textContent = profile ? `${profile.display_name || profile.email} · ${isAdmin() ? "administrator" : "pracownik"}` : "";
   el.adminButton.classList.toggle("hidden", !isAdmin());
-  renderStores(); renderCategories(); renderInventory(); renderSettings(); renderReminders(); renderAdmin();
+  renderStores(); renderCategories(); renderInventory(); renderSensitiveProducts(); renderSettings(); renderReminders(); renderAdmin(); renderWorkspace();
   document.querySelectorAll("[data-online-only]").forEach((node) => { node.disabled = isOffline; });
   el.adminButton.disabled = isOffline;
   renderSyncStatus();
@@ -243,7 +293,15 @@ function renderStores() {
   el.storeSelect.replaceChildren(...filtered.map((s) => new Option(s.name, s.id)));
   el.storeSelect.value = activeStoreId || "";
   el.noStoresState.classList.toggle("hidden", approved.length > 0);
-  el.inventoryView.classList.toggle("hidden", approved.length === 0);
+}
+
+function renderWorkspace() {
+  const hasStore = approvedStoreIds().size > 0;
+  const sensitive = activeView === "sensitive";
+  el.inventoryView.classList.toggle("hidden", !hasStore || sensitive);
+  el.sensitiveView.classList.toggle("hidden", !hasStore || !sensitive);
+  el.inventoryTabButton.classList.toggle("active", !sensitive);
+  el.sensitiveTabButton.classList.toggle("active", sensitive);
 }
 
 function renderCategories() {
@@ -304,6 +362,11 @@ function renderInventory() {
     const checkbox = node.querySelector(".flag-checkbox");
     checkbox.checked = Boolean(product.flag_assigned);
     checkbox.onchange = () => setProductFlag(product, checkbox.checked);
+    const verified = node.querySelector(".verified-check");
+    verified.classList.toggle("hidden", !archived);
+    const verifiedCheckbox = node.querySelector(".verified-checkbox");
+    verifiedCheckbox.checked = Boolean(product.verified);
+    verifiedCheckbox.onchange = () => setProductVerified(product, verifiedCheckbox.checked);
     el.productList.append(node);
   }
   const items = activeItems();
@@ -319,7 +382,7 @@ function row(title, detail, actions = []) {
   text.querySelector("strong").textContent = title; text.querySelector("span").textContent = detail;
   const buttons = document.createElement("div"); buttons.className = "row-actions";
   for (const [label, handler, danger = false] of actions) {
-    const button = document.createElement("button"); button.className = danger ? "danger-button compact" : "ghost-button compact"; button.textContent = label; button.onclick = handler; buttons.append(button);
+    const button = document.createElement("button"); button.type = "button"; button.className = danger ? "danger-button compact" : "ghost-button compact"; button.textContent = label; button.onclick = handler; buttons.append(button);
   }
   wrapper.append(text, buttons); return wrapper;
 }
@@ -355,6 +418,29 @@ function renderSettings() {
   }
 }
 
+function renderSensitiveProducts() {
+  el.sensitiveProductList.replaceChildren();
+  const checks = new Map(state.sensitiveChecks.filter((check) => check.store_id === activeStoreId).map((check) => [check.product_id, check]));
+  const products = [...state.sensitiveProducts].sort((a, b) => a.name.localeCompare(b.name, "pl"));
+  for (const product of products) {
+    const check = checks.get(product.id);
+    const card = document.createElement("article");
+    card.className = `product-card sensitive-card${check?.quantity > 2 ? " alert" : ""}`;
+    const main = document.createElement("div"); main.className = "product-main";
+    const title = document.createElement("h3"); title.textContent = product.name;
+    const ean = document.createElement("p"); ean.textContent = `EAN: ${product.ean}`;
+    main.append(title, ean);
+    const status = document.createElement("strong");
+    status.className = `sensitive-status${check ? check.quantity > 2 ? " alert" : " ok" : ""}`;
+    status.textContent = check ? `${check.quantity} szt. · ${check.quantity > 2 ? "ALARM" : "OK"}` : "Do sprawdzenia";
+    card.append(main, status);
+    card.onclick = () => { el.sensitiveEan.value = product.ean; el.sensitiveQuantity.focus(); };
+    el.sensitiveProductList.append(card);
+  }
+  el.sensitiveProgress.textContent = `${checks.size} / ${products.length}`;
+  el.sensitiveEmptyState.classList.toggle("hidden", products.length > 0);
+}
+
 function renderReminders() {
   const awaiting = state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
   el.reminderBadge.textContent = awaiting.length;
@@ -372,7 +458,9 @@ function renderAdmin() {
     return wrapper;
   }));
   el.membershipRequests.replaceChildren(...state.membershipRequests.map((m) => row(m.profiles?.display_name || m.profiles?.email || m.user_id, m.stores?.name || storeName(m.store_id), [["Zatwierdź", () => reviewMembership(m, "approved")], ["Odrzuć", () => reviewMembership(m, "rejected"), true]])));
-  el.categoryRequests.replaceChildren(...state.categoryRequests.filter((r) => r.status === "pending").map((r) => row(`${r.request_type === "create" ? "Dodaj" : r.request_type === "rename" ? "Zmień" : "Usuń"}: ${r.proposed_name || r.categories?.name}`, "Oczekuje na decyzję", [["Zatwierdź", () => reviewCategory(r.id, true)], ["Odrzuć", () => reviewCategory(r.id, false), true]])));
+  el.categoryRequests.replaceChildren(...state.categoryRequests.filter((r) => r.status === "pending").map((r) => row(`${r.request_type === "create" ? "Dodaj" : r.request_type === "rename" ? "Zmień" : "Usuń"}: ${r.proposed_name || r.categories?.name}`, "Oczekuje na decyzję", [["Zatwierdź", (event) => reviewCategory(r.id, true, event.currentTarget)], ["Odrzuć", (event) => reviewCategory(r.id, false, event.currentTarget), true]])));
+  el.sensitiveAdminList.replaceChildren(...state.sensitiveProducts.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((product) =>
+    row(product.name, `EAN: ${product.ean}`, [["Edytuj", () => editSensitiveProduct(product)], ["Usuń", () => deleteSensitiveProduct(product), true]])));
 }
 
 async function authSubmit(event) {
@@ -417,7 +505,20 @@ async function requestCategory(type, category = null) {
   else showToast("Zmiana czeka na zatwierdzenie administratora.");
   await loadData();
 }
-async function reviewCategory(id, approve) { const { error } = await db.rpc("review_category_request", { target_request: id, approve }); if (error) return report(error); await loadData(); }
+async function reviewCategory(id, approve, button = null) {
+  if (!requireOnline()) return;
+  const buttons = button ? [...button.closest(".row-actions").querySelectorAll("button")] : [];
+  buttons.forEach((item) => { item.disabled = true; });
+  if (button) button.textContent = "Zapisywanie…";
+  const { error } = await db.rpc("review_category_request", { target_request: id, approve });
+  if (error) {
+    buttons.forEach((item) => { item.disabled = false; });
+    if (button) button.textContent = approve ? "Zatwierdź" : "Odrzuć";
+    return report(error, "Nie udało się rozpatrzyć zgłoszenia kategorii.");
+  }
+  showToast(approve ? "Kategoria została zatwierdzona." : "Propozycja została odrzucona.");
+  await loadData();
+}
 
 async function adminEditStore(event, store) {
   event.preventDefault(); if (!requireOnline()) return;
@@ -433,7 +534,7 @@ function openInventory(id) { activeInventoryId = id; renderAll(); if (el.setting
 async function finishInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
-  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
+  if ((await queuedOperationsForInventory(inventory.id)).length || syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
   if (!confirm("Zakończyć spis i przenieść go do archiwum?")) return;
   const { error } = await db.rpc("archive_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
@@ -442,16 +543,43 @@ async function finishInventory() {
 async function cancelInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
-  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
   if (!confirm(`Anulować spis „${inventory.name}”? Spis i jego pozycje zostaną usunięte.`)) return;
+  if (isAdmin() && activeItems().length === 0) return deleteBrokenEmptyInventory(inventory);
+  if ((await queuedOperationsForInventory(inventory.id)).length || syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
   const { error } = await db.rpc("cancel_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
   activeInventoryId = null; showToast("Spis został anulowany."); await loadData();
+}
+
+async function deleteBrokenEmptyInventory(inventory) {
+  const { data: serverInventory, error: inventoryError } = await db.from("inventories").select("id,status").eq("id", inventory.id).maybeSingle();
+  if (inventoryError) return report(inventoryError, "Nie udało się sprawdzić spisu.");
+  if (!serverInventory) {
+    await discardOperationsForInventory(inventory.id);
+    activeInventoryId = null;
+    showToast("Usunięto lokalny pusty spis.");
+    return loadData();
+  }
+  const { count, error: countError } = await db.from("inventory_items").select("id", { count: "exact", head: true }).eq("inventory_id", inventory.id);
+  if (countError) return report(countError, "Nie udało się sprawdzić pozycji spisu.");
+  if (count !== 0) return showToast("Spis nie jest pusty i nie może zostać usunięty tą operacją.");
+  const rpc = serverInventory.status === "archived" ? "delete_archived_inventory" : "delete_empty_active_inventory";
+  const { error } = await db.rpc(rpc, { target_inventory: inventory.id });
+  if (error) return report(error, "Nie udało się usunąć pustego spisu.");
+  await discardOperationsForInventory(inventory.id);
+  activeInventoryId = null;
+  showToast("Pusty spis został bezpiecznie usunięty.");
+  await loadData();
 }
 async function setProductFlag(product, assigned) {
   const changed = { ...product, flag_assigned: assigned, updated_at: now() };
   upsertLocal(state.items, changed); renderAll();
   await enqueue("flag_update", changed);
+}
+async function setProductVerified(product, verified) {
+  const changed = { ...product, verified, updated_at: now() };
+  upsertLocal(state.items, changed); renderAll();
+  await enqueue("verified_update", changed);
 }
 async function deleteArchivedInventory() {
   const inventory = activeInventory();
@@ -541,6 +669,57 @@ async function resolveEan() {
   }
 }
 
+async function submitSensitiveCheck(event) {
+  event.preventDefault();
+  el.sensitiveFormError.textContent = "";
+  if (!activeStoreId || !requireOnline()) return;
+  const ean = el.sensitiveEan.value.trim();
+  const quantity = Number(el.sensitiveQuantity.value);
+  const product = state.sensitiveProducts.find((item) => item.ean === ean);
+  if (!product) return el.sensitiveFormError.textContent = "Ten kod nie znajduje się na liście produktów wrażliwych.";
+  if (!Number.isInteger(quantity) || quantity < 0) return el.sensitiveFormError.textContent = "Podaj prawidłową liczbę sztuk.";
+  const { error } = await db.rpc("submit_sensitive_product_check", { target_store: activeStoreId, target_product: product.id, shelf_quantity: quantity });
+  if (error) return report(error, "Nie udało się zapisać kontroli.");
+  showToast(quantity > 2 ? "Zapisano. Ilość przekracza limit 2 sztuk." : "Kontrola zapisana.");
+  el.sensitiveCheckForm.reset();
+  await loadData();
+}
+
+function resolveSensitiveEan() {
+  const ean = el.sensitiveEan.value.trim();
+  if (!ean) return;
+  const product = state.sensitiveProducts.find((item) => item.ean === ean);
+  el.sensitiveFormError.textContent = product ? `Produkt: ${product.name}` : "Ten kod nie znajduje się na liście produktów wrażliwych.";
+  if (product) el.sensitiveQuantity.focus();
+}
+
+async function saveSensitiveProduct(event) {
+  event.preventDefault();
+  if (!requireOnline()) return;
+  const ean = $("#sensitiveAdminEan").value.trim();
+  const name = $("#sensitiveAdminName").value.trim();
+  const { error } = await db.from("sensitive_products").insert({ ean, name, created_by: user.id });
+  if (error) return report(error, "Nie udało się dodać produktu wrażliwego.");
+  el.sensitiveAdminForm.reset();
+  await loadData();
+}
+
+async function editSensitiveProduct(product) {
+  if (!requireOnline()) return;
+  const name = prompt("Nowa nazwa produktu:", product.name)?.trim();
+  if (!name) return;
+  const { error } = await db.from("sensitive_products").update({ name }).eq("id", product.id);
+  if (error) return report(error, "Nie udało się zmienić produktu.");
+  await loadData();
+}
+
+async function deleteSensitiveProduct(product) {
+  if (!requireOnline() || !confirm(`Usunąć „${product.name}” z listy produktów wrażliwych?`)) return;
+  const { error } = await db.from("sensitive_products").delete().eq("id", product.id);
+  if (error) return report(error, "Nie udało się usunąć produktu.");
+  await loadData();
+}
+
 async function maybeShowDailyReminder() {
   if (!online() || !activeStoreId || !state.inventories.some((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id))) return;
   const today = new Date().toISOString().slice(0, 10);
@@ -577,9 +756,10 @@ async function migrateLegacy() {
 function exportBackup() { const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), profile, state }, null, 2)], { type: "application/json" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `spisownik-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href); }
 function exportCsv() { const inventory = activeInventory(); if (!inventory) return; const esc = (v) => `"${String(v).replaceAll('"', '""')}"`; const rows = [["Sklep", storeName(activeStoreId)], ["Nazwa spisu", inventory.name], [], ["EAN / DAN", "Nazwa", "Kategoria", "Ilość", "Cena"], ...activeItems().map((x) => [x.ean, x.name, categoryName(x.category_id), x.quantity, x.price])]; const blob = new Blob([`\uFEFF${rows.map((r) => r.map(esc).join(";")).join("\r\n")}`], { type: "text/csv;charset=utf-8" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${inventory.name}.csv`; a.click(); URL.revokeObjectURL(a.href); }
 
-async function startScanner() {
+async function startScanner(target = "inventory") {
   if (!window.ZXingBrowser?.BrowserMultiFormatReader) return showToast("Skaner nie jest dostępny.");
-  try { el.scannerDialog.showModal(); const reader = new ZXingBrowser.BrowserMultiFormatReader(); scannerControls = await reader.decodeFromVideoDevice(undefined, el.scannerVideo, (result) => { const value = result?.getText?.(); if (value) { el.ean.value = value; stopScanner(); resolveEan(); } }); } catch { stopScanner(); showToast("Nie udało się uruchomić aparatu."); }
+  scannerTarget = target;
+  try { el.scannerDialog.showModal(); const reader = new ZXingBrowser.BrowserMultiFormatReader(); scannerControls = await reader.decodeFromVideoDevice(undefined, el.scannerVideo, (result) => { const value = result?.getText?.(); if (value) { if (scannerTarget === "sensitive") { el.sensitiveEan.value = value; stopScanner(); resolveSensitiveEan(); } else { el.ean.value = value; stopScanner(); resolveEan(); } } }); } catch { stopScanner(); showToast("Nie udało się uruchomić aparatu."); }
 }
 function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.scannerVideo.srcObject?.getTracks().forEach((x) => x.stop()); el.scannerVideo.srcObject = null; if (el.scannerDialog.open) el.scannerDialog.close(); }
 
@@ -589,6 +769,10 @@ el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm
 el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
 el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
+el.inventoryTabButton.onclick = () => { activeView = "inventories"; renderWorkspace(); };
+el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspace(); renderSensitiveProducts(); };
+el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
+el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
 $("#requestCategoryButton").onclick = async () => { const value = $("#newCategoryName").value.trim(); if (!value) return; $("#newCategoryName").value = ""; const { data, error } = await db.from("category_requests").insert({ request_type: "create", proposed_name: value, requested_by: user.id }).select().single(); if (error) return report(error); if (isAdmin()) { const result = await db.rpc("review_category_request", { target_request: data.id, approve: true }); if (result.error) return report(result.error); } else showToast("Zmiana czeka na zatwierdzenie."); await loadData(); };
 $("#adminAddStore").onclick = async () => {
   if (!requireOnline()) return;
@@ -607,7 +791,7 @@ $("#logoutButton").onclick = async () => {
   await clearOfflineData(userId);
   await db.auth.signOut({ scope: "local" });
 }; $("#migrateButton").onclick = migrateLegacy; $("#exportBackupButton").onclick = exportBackup; $("#exportCsvButton").onclick = exportCsv;
-$("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
+$("#scanButton").onclick = () => startScanner("inventory"); $("#scanSensitiveButton").onclick = () => startScanner("sensitive"); $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => document.getElementById(button.dataset.close).close());
 $("#themeButton").onclick = () => { const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem(THEME_KEY, theme); };
 window.addEventListener("online", syncPending); window.addEventListener("offline", renderAll);
