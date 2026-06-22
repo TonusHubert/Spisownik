@@ -35,6 +35,18 @@ const el = {
   sensitiveAdminEditingId: $("#sensitiveAdminEditingId"), sensitiveAdminEan: $("#sensitiveAdminEan"), sensitiveAdminName: $("#sensitiveAdminName"),
   sensitiveAdminImage: $("#sensitiveAdminImage"), sensitiveRemoveImage: $("#sensitiveRemoveImage"), sensitiveRemoveImageLabel: $("#sensitiveRemoveImageLabel"),
   sensitiveAdminSubmit: $("#sensitiveAdminSubmit"), sensitiveAdminCancel: $("#sensitiveAdminCancel"), sensitiveAdminError: $("#sensitiveAdminError"),
+  transactionsTabButton: $("#transactionsTabButton"), transactionsView: $("#transactionsView"), transactionForm: $("#transactionForm"),
+  transactionEditingId: $("#transactionEditingId"), transactionType: $("#transactionType"), transactionNumber: $("#transactionNumber"),
+  transactionDateField: $("#transactionDateField"), transactionDate: $("#transactionDate"), transactionDateNote: $("#transactionDateNote"),
+  transactionNote: $("#transactionNote"), transactionFormTitle: $("#transactionFormTitle"), transactionSubmitButton: $("#transactionSubmitButton"),
+  transactionCancelEdit: $("#transactionCancelEdit"), transactionFormError: $("#transactionFormError"),
+  transactionEligibleStat: $("#transactionEligibleStat"), transactionPendingStat: $("#transactionPendingStat"),
+  transactionCheckedStat: $("#transactionCheckedStat"), transactionThresholdStatus: $("#transactionThresholdStatus"),
+  transactionPendingList: $("#transactionPendingList"), transactionHistoryList: $("#transactionHistoryList"),
+  transactionPendingEmpty: $("#transactionPendingEmpty"), transactionHistoryEmpty: $("#transactionHistoryEmpty"),
+  inventoryReminderSection: $("#inventoryReminderSection"), transactionReminderSection: $("#transactionReminderSection"),
+  transactionReminderText: $("#transactionReminderText"), transactionReminderList: $("#transactionReminderList"),
+  noRemindersText: $("#noRemindersText"),
 };
 
 let signupMode = false;
@@ -52,7 +64,7 @@ let scheduledAuthKey = null;
 let activeView = "inventories";
 
 function emptyState() {
-  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [] };
+  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [], suspiciousTransactions: [] };
 }
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
@@ -69,8 +81,12 @@ function compareStores(a, b) { return storeNumber(a.name) - storeNumber(b.name) 
 function storeMatches(store, value) { return store.name.toLocaleLowerCase("pl").includes(value.trim().toLocaleLowerCase("pl")); }
 function archiveDeadline(inventory) { const store = state.stores.find((x) => x.id === inventory.store_id); return new Date(new Date(inventory.archived_at).getTime() + (store?.retention_days || 0) * 86400000); }
 function missingFlags(inventoryId) { return state.items.filter((x) => x.inventory_id === inventoryId && !x.flag_assigned).length; }
+function activeStoreTransactions() { return state.suspiciousTransactions.filter((item) => item.store_id === activeStoreId); }
+function transactionIsEligible(item) { return !item.checked_at && (item.entry_type === "application" || item.receipt_date < localDate()); }
+function eligibleTransactions() { return activeStoreTransactions().filter(transactionIsEligible); }
 function money(value) { return new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" }).format(Number(value) || 0); }
 function date(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date(value)); }
+function dateTime(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
 function defaultInventoryName() { return `Spis ${new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date())}`; }
 function localDate() { return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Warsaw" }).format(new Date()); }
 function showToast(message) { clearTimeout(toastTimer); el.toast.textContent = message; el.toast.classList.add("visible"); toastTimer = setTimeout(() => el.toast.classList.remove("visible"), 3000); }
@@ -173,8 +189,9 @@ async function loadData() {
       storeIds.length ? query("store_prices", "*", [["in", "store_id", storeIds]]) : [],
       isAdmin() ? query("profiles", "*", [["eq", "role", "worker"]]) : [],
       storeIds.length ? query("sensitive_product_checks", "*", [["in", "store_id", storeIds], ["eq", "check_date", localDate()]]) : [],
+      storeIds.length ? query("suspicious_transactions", "*", [["in", "store_id", storeIds]]) : [],
     ]);
-    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3];
+    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3]; state.suspiciousTransactions = extra[4];
     applyPending(await readQueue());
     chooseActive();
     await saveSnapshot();
@@ -285,10 +302,10 @@ function chooseActive() {
 function renderAll() {
   const isOffline = !online();
   el.offlineBanner.classList.toggle("hidden", !isOffline);
-  el.offlineBanner.textContent = "Brak internetu. Zmiany w spisach zostaną zsynchronizowane po odzyskaniu połączenia.";
+  el.offlineBanner.textContent = "Brak internetu. Zmiany w spisach zostaną zsynchronizowane po odzyskaniu połączenia. Transakcje są dostępne tylko do odczytu.";
   el.profileSummary.textContent = profile ? `${profile.display_name || profile.email} · ${isAdmin() ? "administrator" : "pracownik"}` : "";
   el.adminButton.classList.toggle("hidden", !isAdmin());
-  renderStores(); renderCategories(); renderInventory(); renderSensitiveProducts(); renderSettings(); renderReminders(); renderAdmin(); renderWorkspace();
+  renderStores(); renderCategories(); renderInventory(); renderSensitiveProducts(); renderTransactions(); renderSettings(); renderReminders(); renderAdmin(); renderWorkspace();
   document.querySelectorAll("[data-online-only]").forEach((node) => { node.disabled = isOffline; });
   el.adminButton.disabled = isOffline;
   renderSyncStatus();
@@ -305,10 +322,13 @@ function renderStores() {
 function renderWorkspace() {
   const hasStore = approvedStoreIds().size > 0;
   const sensitive = activeView === "sensitive";
-  el.inventoryView.classList.toggle("hidden", !hasStore || sensitive);
+  const transactions = activeView === "transactions";
+  el.inventoryView.classList.toggle("hidden", !hasStore || sensitive || transactions);
   el.sensitiveView.classList.toggle("hidden", !hasStore || !sensitive);
-  el.inventoryTabButton.classList.toggle("active", !sensitive);
+  el.transactionsView.classList.toggle("hidden", !hasStore || !transactions);
+  el.inventoryTabButton.classList.toggle("active", !sensitive && !transactions);
   el.sensitiveTabButton.classList.toggle("active", sensitive);
+  el.transactionsTabButton.classList.toggle("active", transactions);
 }
 
 function renderCategories() {
@@ -471,11 +491,63 @@ function createSensitivePlaceholder() {
   return placeholder;
 }
 
+function transactionTypeLabel(item) {
+  return item.entry_type === "receipt" ? "Paragon" : "Aplikacja";
+}
+
+function transactionDetail(item, history = false) {
+  const parts = [];
+  if (item.receipt_date) parts.push(`Data paragonu: ${date(`${item.receipt_date}T12:00:00`)}`);
+  if (item.note) parts.push(`Notatka: ${item.note}`);
+  parts.push(`Dodał(a): ${item.created_by_name} · ${dateTime(item.created_at)}`);
+  if (history) parts.push(`Sprawdził(a): ${item.checked_by_name} · ${dateTime(item.checked_at)}`);
+  else if (!transactionIsEligible(item)) parts.push("Zacznie być liczony następnego dnia.");
+  return parts.join("\n");
+}
+
+function renderTransactions() {
+  const all = activeStoreTransactions();
+  const pending = all.filter((item) => !item.checked_at).sort((a, b) =>
+    Number(transactionIsEligible(b)) - Number(transactionIsEligible(a)) || new Date(b.created_at) - new Date(a.created_at));
+  const history = all.filter((item) => item.checked_at).sort((a, b) => new Date(b.checked_at) - new Date(a.checked_at));
+  const eligible = pending.filter(transactionIsEligible);
+  el.transactionEligibleStat.textContent = eligible.length;
+  el.transactionPendingStat.textContent = pending.length;
+  el.transactionCheckedStat.textContent = history.length;
+  el.transactionThresholdStatus.textContent = eligible.length >= 5 ? `Próg osiągnięty: ${eligible.length}` : `${eligible.length} / 5`;
+  el.transactionDate.max = localDate();
+  el.transactionPendingList.replaceChildren(...pending.map((item) => {
+    const entry = row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item), [
+      ["Sprawdzone", () => checkSuspiciousTransaction(item)],
+      ["Edytuj", () => editSuspiciousTransaction(item)],
+      ["Usuń", () => deleteSuspiciousTransaction(item), true],
+    ]);
+    entry.querySelectorAll("button").forEach((button) => { button.disabled = !online(); });
+    entry.classList.toggle("transaction-due", transactionIsEligible(item));
+    return entry;
+  }));
+  el.transactionHistoryList.replaceChildren(...history.map((item) =>
+    row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item, true))));
+  el.transactionPendingEmpty.classList.toggle("hidden", pending.length > 0);
+  el.transactionHistoryEmpty.classList.toggle("hidden", history.length > 0);
+  updateTransactionTypeFields();
+}
+
 function renderReminders() {
   const awaiting = state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
-  el.reminderBadge.textContent = awaiting.length;
-  el.remindersButton.classList.toggle("has-badge", awaiting.length > 0);
+  const transactions = eligibleTransactions();
+  const reminderCount = awaiting.length + transactions.length;
+  el.reminderBadge.textContent = reminderCount;
+  el.remindersButton.classList.toggle("has-badge", reminderCount > 0);
   el.reminderList.replaceChildren(...awaiting.map((x) => row(x.name, `${missingFlags(x.id)} pozycji bez flagi · archiwum do ${date(archiveDeadline(x))}`, [["Otwórz", () => { openInventory(x.id); el.remindersDialog.close(); }]])));
+  el.transactionReminderText.textContent = `${transactions.length} wpisów kwalifikuje się do sprawdzenia${transactions.length >= 5 ? " — osiągnięto próg przypomnienia." : "."}`;
+  el.transactionReminderList.replaceChildren(...transactions.map((item) =>
+    row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item), [["Otwórz", () => {
+      activeView = "transactions"; renderAll(); el.remindersDialog.close();
+    }]])));
+  el.inventoryReminderSection.classList.toggle("hidden", awaiting.length === 0);
+  el.transactionReminderSection.classList.toggle("hidden", transactions.length === 0);
+  el.noRemindersText.classList.toggle("hidden", reminderCount > 0);
 }
 
 function renderAdmin() {
@@ -846,13 +918,108 @@ async function deleteSensitiveProduct(product) {
   await loadData();
 }
 
+function updateTransactionTypeFields() {
+  const receipt = el.transactionType.value === "receipt";
+  el.transactionDateField.classList.toggle("hidden", !receipt);
+  el.transactionDate.required = receipt;
+  if (!receipt) el.transactionDate.value = "";
+  el.transactionDateNote.textContent = receipt && el.transactionDate.value === localDate()
+    ? "Dzisiejszy paragon zacznie być liczony jutro."
+    : "";
+}
+
+function resetTransactionForm() {
+  el.transactionForm.reset();
+  el.transactionEditingId.value = "";
+  el.transactionType.value = "receipt";
+  el.transactionDate.max = localDate();
+  el.transactionFormTitle.textContent = "Dodaj wpis";
+  el.transactionSubmitButton.textContent = "Dodaj wpis";
+  el.transactionCancelEdit.classList.add("hidden");
+  el.transactionFormError.textContent = "";
+  updateTransactionTypeFields();
+}
+
+function editSuspiciousTransaction(item) {
+  el.transactionEditingId.value = item.id;
+  el.transactionType.value = item.entry_type;
+  el.transactionNumber.value = item.reference_number;
+  el.transactionDate.value = item.receipt_date || "";
+  el.transactionNote.value = item.note || "";
+  el.transactionFormTitle.textContent = "Edytuj wpis";
+  el.transactionSubmitButton.textContent = "Zapisz zmiany";
+  el.transactionCancelEdit.classList.remove("hidden");
+  el.transactionFormError.textContent = "";
+  updateTransactionTypeFields();
+  el.transactionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.transactionNumber.focus();
+}
+
+async function submitSuspiciousTransaction(event) {
+  event.preventDefault();
+  el.transactionFormError.textContent = "";
+  if (!activeStoreId || !requireOnline()) return;
+  const id = el.transactionEditingId.value;
+  const type = el.transactionType.value;
+  const number = el.transactionNumber.value.trim();
+  const receiptDate = type === "receipt" ? el.transactionDate.value : null;
+  const note = el.transactionNote.value.trim() || null;
+  if (!number) return el.transactionFormError.textContent = "Podaj numer paragonu lub aplikacji.";
+  if (type === "receipt" && (!receiptDate || receiptDate > localDate())) return el.transactionFormError.textContent = "Podaj datę paragonu nie późniejszą niż dzisiaj.";
+  const duplicate = activeStoreTransactions().some((item) =>
+    item.id !== id && !item.checked_at && item.entry_type === type
+      && item.reference_number.trim().toLocaleLowerCase("pl") === number.toLocaleLowerCase("pl"));
+  if (duplicate) return el.transactionFormError.textContent = "Taki oczekujący numer już istnieje.";
+  const rpc = id ? "update_suspicious_transaction" : "add_suspicious_transaction";
+  const args = id
+    ? { target_id: id, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note }
+    : { target_store: activeStoreId, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note };
+  const { error } = await db.rpc(rpc, args);
+  if (error) return report(error, "Nie udało się zapisać wpisu.");
+  showToast(id ? "Wpis został zaktualizowany." : "Wpis został dodany.");
+  resetTransactionForm();
+  await loadData();
+}
+
+async function deleteSuspiciousTransaction(item) {
+  if (!requireOnline() || !confirm(`Usunąć oczekujący wpis „${item.reference_number}”?`)) return;
+  const { error } = await db.rpc("delete_suspicious_transaction", { target_id: item.id });
+  if (error) return report(error, "Nie udało się usunąć wpisu.");
+  if (el.transactionEditingId.value === item.id) resetTransactionForm();
+  showToast("Wpis został usunięty.");
+  await loadData();
+}
+
+async function checkSuspiciousTransaction(item) {
+  if (!requireOnline() || !confirm(`Oznaczyć numer „${item.reference_number}” jako sprawdzony?`)) return;
+  const { error } = await db.rpc("check_suspicious_transaction", { target_id: item.id });
+  if (error) return report(error, "Nie udało się oznaczyć wpisu jako sprawdzony.");
+  if (el.transactionEditingId.value === item.id) resetTransactionForm();
+  showToast("Wpis został oznaczony jako sprawdzony.");
+  await loadData();
+}
+
 async function maybeShowDailyReminder() {
-  if (!online() || !activeStoreId || !state.inventories.some((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id))) return;
-  const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await db.from("reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today);
-  if (error || data.length) return;
-  const saved = await db.from("reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today });
-  if (!saved.error && !el.remindersDialog.open) el.remindersDialog.showModal();
+  if (!online() || !activeStoreId) return;
+  const today = localDate();
+  const hasInventoryReminder = state.inventories.some((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
+  const hasTransactionReminder = eligibleTransactions().length >= 5;
+  if (!hasInventoryReminder && !hasTransactionReminder) return;
+  const checks = await Promise.all([
+    hasInventoryReminder
+      ? db.from("reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today)
+      : Promise.resolve({ data: [], error: null }),
+    hasTransactionReminder
+      ? db.from("transaction_reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (checks.some((result) => result.error)) return;
+  const saves = [];
+  if (hasInventoryReminder && !checks[0].data.length) saves.push(db.from("reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today }));
+  if (hasTransactionReminder && !checks[1].data.length) saves.push(db.from("transaction_reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today }));
+  if (!saves.length) return;
+  const saved = await Promise.all(saves);
+  if (saved.every((result) => !result.error) && !el.remindersDialog.open) el.remindersDialog.showModal();
 }
 
 async function migrateLegacy() {
@@ -890,13 +1057,18 @@ function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.s
 
 el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
-el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; chooseActive(); renderAll(); maybeShowDailyReminder(); };
+el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; resetTransactionForm(); chooseActive(); renderAll(); maybeShowDailyReminder(); };
 el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
 el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 el.inventoryTabButton.onclick = () => { activeView = "inventories"; renderWorkspace(); };
 el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspace(); renderSensitiveProducts(); };
+el.transactionsTabButton.onclick = () => { activeView = "transactions"; renderWorkspace(); renderTransactions(); };
 el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
+el.transactionForm.onsubmit = submitSuspiciousTransaction;
+el.transactionType.onchange = updateTransactionTypeFields;
+el.transactionDate.onchange = updateTransactionTypeFields;
+el.transactionCancelEdit.onclick = resetTransactionForm;
 el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
 el.sensitiveAdminCancel.onclick = resetSensitiveAdminForm;
 $("#adminAddMembership").onclick = adminAddMembership;

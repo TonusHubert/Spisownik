@@ -13,7 +13,7 @@
     <header class="topbar">
       <div><p class="eyebrow">Mobilna weryfikacja</p><h1>Spisownik</h1></div>
       <div class="header-actions">
-        <button class="icon-button hidden" id="remindersButton" type="button" aria-label="Spisy oczekujące na flagi"><span>!</span><b id="reminderBadge">0</b></button>
+        <button class="icon-button hidden" id="remindersButton" type="button" aria-label="Pozycje wymagające działania"><span>!</span><b id="reminderBadge">0</b></button>
         <button class="icon-button hidden" id="adminButton" type="button" aria-label="Panel administratora">A</button>
         <button class="icon-button hidden" id="settingsButton" type="button" aria-label="Ustawienia">⚙</button>
         <button class="icon-button" id="themeButton" type="button" aria-label="Zmień motyw">◐</button>
@@ -51,6 +51,7 @@
         <nav class="workspace-tabs" aria-label="Widoki aplikacji">
           <button class="workspace-tab active" id="inventoryTabButton" type="button">Spisy</button>
           <button class="workspace-tab" id="sensitiveTabButton" type="button">Produkty wrażliwe</button>
+          <button class="workspace-tab" id="transactionsTabButton" type="button">Transakcje</button>
         </nav>
 
         <section class="empty-state hidden" id="noStoresState">
@@ -107,6 +108,38 @@
             <div class="empty-state" id="sensitiveEmptyState"><h3>Brak produktów wrażliwych</h3><p>Administrator może dodać je w panelu zarządzania.</p></div>
           </section>
         </section>
+
+        <section class="hidden" id="transactionsView">
+          <section class="stats-grid transaction-stats">
+            <article class="stat-card accent"><span>Do sprawdzenia</span><strong id="transactionEligibleStat">0</strong></article>
+            <article class="stat-card"><span>Oczekujące</span><strong id="transactionPendingStat">0</strong></article>
+            <article class="stat-card"><span>Sprawdzone</span><strong id="transactionCheckedStat">0</strong></article>
+          </section>
+          <section class="panel transaction-panel">
+            <div class="section-heading"><div><p class="eyebrow">Podejrzana transakcja</p><h2 id="transactionFormTitle">Dodaj wpis</h2></div></div>
+            <form id="transactionForm" autocomplete="off">
+              <input id="transactionEditingId" type="hidden" />
+              <div class="two-columns">
+                <div class="field"><label for="transactionType">Rodzaj numeru</label><select id="transactionType" required data-online-only><option value="receipt">Numer paragonu</option><option value="application">Numer aplikacji</option></select></div>
+                <div class="field"><label for="transactionNumber">Numer</label><input id="transactionNumber" maxlength="80" required data-online-only /></div>
+              </div>
+              <div class="field" id="transactionDateField"><label for="transactionDate">Data paragonu</label><input id="transactionDate" type="date" required data-online-only /><p class="field-note" id="transactionDateNote"></p></div>
+              <div class="field"><label for="transactionNote">Notatka (opcjonalnie)</label><textarea id="transactionNote" maxlength="500" rows="3" data-online-only></textarea></div>
+              <div class="form-actions"><button class="primary-button" id="transactionSubmitButton" type="submit" data-online-only>Dodaj wpis</button><button class="ghost-button hidden" id="transactionCancelEdit" type="button">Anuluj</button></div>
+              <p class="form-error" id="transactionFormError"></p>
+            </form>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Wymagane działanie</p><h2>Oczekujące</h2></div><strong id="transactionThresholdStatus"></strong></div>
+            <div class="session-list transaction-list" id="transactionPendingList"></div>
+            <div class="empty-state" id="transactionPendingEmpty"><h3>Brak oczekujących wpisów</h3><p>Dodane numery paragonów i aplikacji pojawią się tutaj.</p></div>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Historia sklepu</p><h2>Sprawdzone</h2></div></div>
+            <div class="session-list transaction-list" id="transactionHistoryList"></div>
+            <div class="empty-state" id="transactionHistoryEmpty"><h3>Brak historii</h3><p>Sprawdzone wpisy pozostaną widoczne bezterminowo.</p></div>
+          </section>
+        </section>
       </div>
     </main>
 
@@ -141,9 +174,10 @@
     </dialog>
 
     <dialog id="remindersDialog">
-      <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Potwierdź flagi</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
-      <p>Te archiwalne spisy w wybranym sklepie mają pozycje bez nadanych flag.</p>
-      <div class="session-list" id="reminderList"></div>
+      <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Przypomnienia</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
+      <section id="inventoryReminderSection"><h3>Flagi w archiwalnych spisach</h3><p>Te spisy mają pozycje bez nadanych flag.</p><div class="session-list" id="reminderList"></div></section>
+      <section class="settings-section" id="transactionReminderSection"><h3>Podejrzane transakcje</h3><p id="transactionReminderText"></p><div class="session-list" id="transactionReminderList"></div></section>
+      <p class="hidden" id="noRemindersText">W wybranym sklepie nie ma obecnie pozycji wymagających działania.</p>
       <button class="ghost-button wide" data-close="remindersDialog">Przypomnij później</button>
     </dialog>
 
@@ -154,6 +188,6 @@
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=11" defer></script>
+    <script src="app.js?v=12" defer></script>
   </body>
 </html>

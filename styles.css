@@ -43,7 +43,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -215,7 +216,8 @@ main {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
@@ -232,9 +234,15 @@ input {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+textarea {
+  padding: 10px 12px;
+  resize: vertical;
 }
 
 .saved-status {
@@ -842,6 +850,49 @@ dialog::backdrop {
 .workspace-tab.active {
   background: var(--primary);
   color: #fff;
+}
+
+.transaction-panel {
+  margin-bottom: 14px;
+}
+
+.transaction-list .session-history-row {
+  align-items: start;
+  padding: 13px;
+}
+
+.transaction-list .session-history-row strong {
+  font-size: 0.84rem;
+}
+
+.transaction-list .session-history-row span {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.transaction-due {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
+  background: var(--primary-soft);
+}
+
+#transactionThresholdStatus {
+  color: var(--primary);
+  font-size: 0.76rem;
+}
+
+#remindersDialog > section h3 {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+#remindersDialog > section p,
+#noRemindersText {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
 }
 
 .sensitive-check-panel {

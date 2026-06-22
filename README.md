@@ -12,6 +12,7 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 - niezależne oznaczanie archiwalnych pozycji jako zweryfikowane,
 - codzienna kontrola globalnej listy produktów wrażliwych z limitem 2 sztuk na półce, zdjęciami i kodami kreskowymi gotowymi do skanowania,
 - codzienne przypomnienie wewnątrz aplikacji,
+- sklepowa lista numerów paragonów i aplikacji do sprawdzania podejrzanych transakcji,
 - lokalny cache danych do odczytu bez internetu,
 - jednorazowy import danych z wersji lokalnej oraz eksport JSON i CSV.
 
@@ -21,6 +22,8 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 2. Otwórz **SQL Editor** i wykonaj cały plik `supabase/schema.sql`.
 
 Jeśli aktualizujesz istniejącą instalację, wykonaj zamiast tego plik `supabase/offline_sync_migration.sql`.
+
+Po aktualizacji istniejącej instalacji wykonaj również plik `supabase/suspicious_transactions_migration.sql`, aby dodać listę podejrzanych transakcji i jej przypomnienia.
 
 Migracja tworzy również publiczny bucket `sensitive-product-images`, dodaje zdjęcia produktów wrażliwych oraz włącza bezpośrednie zarządzanie kategoriami i przypisaniami przez administratora.
 
