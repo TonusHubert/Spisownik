@@ -183,11 +183,12 @@
 
     <dialog id="scannerDialog"><div class="scanner-header"><h2>Zeskanuj kod</h2><button class="icon-button" id="closeScannerButton">×</button></div><div class="scanner-frame"><video id="scannerVideo" playsinline muted></video><div class="scan-line"></div></div><p id="scannerMessage">Umieść kod kreskowy wewnątrz ramki.</p></dialog>
     <div class="toast" id="toast"></div>
-    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><label class="flag-check hidden"><input class="flag-checkbox" type="checkbox" /><span>Flaga nadana</span></label><label class="verified-check hidden"><input class="verified-checkbox" type="checkbox" /><span>Zweryfikowane</span></label><button class="edit-button" type="button">Edytuj</button><button class="delete-button" type="button">Usuń</button></div></article></template>
+    <template id="productTemplate"><article class="product-card"><div class="product-main"><div class="product-title-row"><h3 class="product-name"></h3><strong class="product-total"></strong></div><p class="product-ean"></p><div class="product-meta"><span class="quantity-badge"></span><span class="product-price"></span><span class="product-category"></span></div></div><div class="product-actions"><label class="flag-check hidden"><input class="flag-checkbox" type="checkbox" /><span>Flaga nadana</span></label><label class="verified-check hidden"><input class="verified-checkbox" type="checkbox" /><span>Zweryfikowane</span></label><div class="verified-period hidden"><span class="verified-period-label">Zweryfikowany okres</span><input class="verified-from-input" type="date" aria-label="Zweryfikowane od" /><span class="verified-period-dash">–</span><input class="verified-to-input" type="date" aria-label="Zweryfikowane do" /></div><button class="edit-button" type="button">Edytuj</button><button class="delete-button" type="button">Usuń</button></div></article></template>
     <script src="vendor/supabase.min.js" defer></script>
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="app.js?v=12" defer></script>
+    <script src="sync.js?v=2" defer></script>
+    <script src="app.js?v=14" defer></script>
   </body>
 </html>

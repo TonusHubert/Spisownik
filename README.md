@@ -61,6 +61,17 @@ node server.js
 
 Następnie otwórz `http://localhost:8000`.
 
+## Testy
+
+Logika kolejki synchronizacji offline (`sync.js`) jest pokryta testami automatycznymi.
+
+```powershell
+npm install
+npm test
+```
+
+Testy nie wymagają połączenia z Supabase ani przeglądarki — używają wbudowanego w Node.js `node:test` oraz pakietu `fake-indexeddb` jako jedynej zależności deweloperskiej.
+
 ## Wdrożenie
 
 Workflow `.github/workflows/pages.yml` publikuje aplikację na GitHub Pages. Plik `config.js` musi zawierać konfigurację projektu Supabase używanego przez wdrożenie.

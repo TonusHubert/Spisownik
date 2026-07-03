@@ -79,7 +79,9 @@ create table public.inventory_items (
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
   flag_assigned boolean not null default false,
-  verified boolean not null default false
+  verified boolean not null default false,
+  verified_from text,
+  verified_to text
 );
 
 create unique index inventory_items_active_ean on public.inventory_items (inventory_id, ean) where deleted_at is null;
@@ -378,6 +380,19 @@ begin
 end;
 $$;
 
+create or replace function public.set_inventory_item_verified_period(target_item uuid, from_value text, to_value text)
+returns void language plpgsql security definer set search_path = public
+as $$
+begin
+  if not exists (
+    select 1 from inventory_items ii join inventories i on i.id = ii.inventory_id
+    where ii.id = target_item and ii.deleted_at is null and i.status = 'archived' and is_approved_member(i.store_id)
+  ) then raise exception 'Brak uprawnień lub spis nie jest w archiwum'; end if;
+  perform set_config('app.allow_inventory_flag', 'true', true);
+  update inventory_items set verified_from = nullif(from_value, ''), verified_to = nullif(to_value, ''), updated_at = now() where id = target_item;
+end;
+$$;
+
 create or replace function public.submit_sensitive_product_check(target_store uuid, target_product uuid, shelf_quantity integer)
 returns void language plpgsql security definer set search_path = public
 as $$
@@ -415,9 +430,7 @@ begin
   from inventories i join stores s on s.id = i.store_id
   where i.id = target_inventory and i.status = 'archived';
   if target_store is null or not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
-  if archived + make_interval(days => retention) > now() then raise exception 'Okres archiwum jeszcze nie minal'; end if;
-  if exists (select 1 from inventory_items where inventory_id = target_inventory and deleted_at is null and not flag_assigned)
-    then raise exception 'Nie wszystkie flagi zostaly nadane'; end if;
+  if archived + make_interval(days => retention + 14) > now() then raise exception 'Okres archiwum jeszcze nie minal'; end if;
   perform set_config('app.allow_inventory_flag', 'true', true);
   delete from inventories where id = target_inventory;
 end;
@@ -538,11 +551,29 @@ begin
   from inventories i join stores s on s.id = i.store_id
   where i.id = target_inventory and i.status = 'archived';
   if target_store is null or not is_approved_member(target_store) then raise exception 'Brak uprawnien'; end if;
-  if not is_admin() and archived + make_interval(days => retention) > now() then raise exception 'Okres archiwum jeszcze nie minal'; end if;
-  if not is_admin() and exists (select 1 from inventory_items where inventory_id = target_inventory and deleted_at is null and not flag_assigned)
-    then raise exception 'Nie wszystkie flagi zostaly nadane'; end if;
+  if not is_admin() and archived + make_interval(days => retention + 14) > now() then raise exception 'Okres archiwum jeszcze nie minal'; end if;
   perform set_config('app.allow_inventory_flag', 'true', true);
   delete from inventories where id = target_inventory;
+end;
+$$;
+
+-- Automatyczne porzadkowanie: usuwa wszystkie archiwalne spisy po okresie archiwum sklepu + 14 dni zapasu,
+-- niezaleznie od tego, czy wszedzie nadano flagi lub zaznaczono weryfikacje.
+create or replace function public.purge_expired_inventories()
+returns integer language plpgsql security definer set search_path = public
+as $$
+declare removed integer;
+begin
+  perform set_config('app.allow_inventory_flag', 'true', true);
+  with expired as (
+    delete from inventories i
+    using stores s
+    where s.id = i.store_id and i.status = 'archived'
+      and i.archived_at + make_interval(days => s.retention_days + 14) <= now()
+    returning i.id
+  )
+  select count(*) into removed from expired;
+  return removed;
 end;
 $$;
 
@@ -555,6 +586,10 @@ revoke all on function public.set_inventory_item_verified(uuid, boolean) from pu
 revoke all on function public.submit_sensitive_product_check(uuid, uuid, integer) from public, anon;
 revoke all on function public.delete_empty_active_inventory(uuid) from public, anon;
 grant execute on function public.set_inventory_item_verified(uuid, boolean) to authenticated;
+revoke all on function public.set_inventory_item_verified_period(uuid, text, text) from public, anon;
+grant execute on function public.set_inventory_item_verified_period(uuid, text, text) to authenticated;
+revoke all on function public.purge_expired_inventories() from public, anon;
+grant execute on function public.purge_expired_inventories() to authenticated;
 grant execute on function public.submit_sensitive_product_check(uuid, uuid, integer) to authenticated;
 grant execute on function public.delete_empty_active_inventory(uuid) to authenticated;
 grant execute on function public.delete_archived_inventory(uuid) to authenticated;

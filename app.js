@@ -1,8 +1,6 @@
 const LEGACY_KEY = "spisownik-state-v2";
 const MIGRATION_KEY = "spisownik-migrated-v1";
 const THEME_KEY = "spisownik-theme";
-const OFFLINE_DB = "spisownik-offline-v1";
-const OFFLINE_DB_VERSION = 1;
 const $ = (selector) => document.querySelector(selector);
 const config = window.SPISOWNIK_CONFIG || {};
 const configured = Boolean(config.supabaseUrl && config.supabaseAnonKey);
@@ -52,20 +50,25 @@ const el = {
 let signupMode = false;
 let user = null;
 let profile = null;
-let state = emptyState();
+let state = window.SpisownikSync.emptyState();
 let activeStoreId = null;
 let activeInventoryId = null;
 let toastTimer = null;
 let scannerControls = null;
-let pendingCount = 0;
-let syncing = false;
-let syncError = "";
 let scheduledAuthKey = null;
 let activeView = "inventories";
 
-function emptyState() {
-  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [], suspiciousTransactions: [] };
-}
+const syncEngine = window.SpisownikSync.createSyncEngine({
+  db,
+  getUserId: () => user?.id,
+  getSnapshotPayload: () => ({ profile, state }),
+  online,
+  onStatusChange: renderSyncStatus,
+  onDiscard: (discarded) => showToast(`Odrzucono ${discarded.length} nieaktualnych zmian archiwalnego spisu.`),
+  onSyncError: (error) => report(error, "Nie udało się zsynchronizować zmian."),
+  onSyncComplete: loadData,
+});
+
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
 function approvedStoreIds() {
@@ -79,7 +82,8 @@ function storeName(id) { return state.stores.find((x) => x.id === id)?.name || "
 function storeNumber(name) { return Number(String(name).match(/^\s*(\d+)/)?.[1] || Number.MAX_SAFE_INTEGER); }
 function compareStores(a, b) { return storeNumber(a.name) - storeNumber(b.name) || a.name.localeCompare(b.name, "pl", { numeric: true }); }
 function storeMatches(store, value) { return store.name.toLocaleLowerCase("pl").includes(value.trim().toLocaleLowerCase("pl")); }
-function archiveDeadline(inventory) { const store = state.stores.find((x) => x.id === inventory.store_id); return new Date(new Date(inventory.archived_at).getTime() + (store?.retention_days || 0) * 86400000); }
+const ARCHIVE_BUFFER_DAYS = 14;
+function archiveDeadline(inventory) { const store = state.stores.find((x) => x.id === inventory.store_id); return new Date(new Date(inventory.archived_at).getTime() + ((store?.retention_days || 0) + ARCHIVE_BUFFER_DAYS) * 86400000); }
 function missingFlags(inventoryId) { return state.items.filter((x) => x.inventory_id === inventoryId && !x.flag_assigned).length; }
 function activeStoreTransactions() { return state.suspiciousTransactions.filter((item) => item.store_id === activeStoreId); }
 function transactionIsEligible(item) { return !item.checked_at && (item.entry_type === "application" || item.receipt_date < localDate()); }
@@ -98,61 +102,13 @@ function sensitiveImageUrl(path) {
   return db.storage.from("sensitive-product-images").getPublicUrl(path).data.publicUrl;
 }
 
-function openOfflineDb() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(OFFLINE_DB, OFFLINE_DB_VERSION);
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains("snapshots")) database.createObjectStore("snapshots", { keyPath: "userId" });
-      if (!database.objectStoreNames.contains("queue")) {
-        const queue = database.createObjectStore("queue", { keyPath: "id", autoIncrement: true });
-        queue.createIndex("userId", "userId");
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function offlineStore(name, mode, action) {
-  const database = await openOfflineDb();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(name, mode);
-    const request = action(transaction.objectStore(name));
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => database.close();
-  });
-}
-
-async function readSnapshot(userId) { return offlineStore("snapshots", "readonly", (store) => store.get(userId)); }
-async function saveSnapshot() {
-  if (!user) return;
-  await offlineStore("snapshots", "readwrite", (store) => store.put({ userId: user.id, profile, state, savedAt: now() }));
-}
-async function clearOfflineData(userId) {
-  await offlineStore("snapshots", "readwrite", (store) => store.delete(userId));
-  const operations = await readQueue(userId);
-  await Promise.all(operations.map((operation) => offlineStore("queue", "readwrite", (store) => store.delete(operation.id))));
-}
-async function readQueue(userId = user?.id) {
-  if (!userId) return [];
-  return offlineStore("queue", "readonly", (store) => store.index("userId").getAll(userId));
-}
-async function refreshPendingCount() { pendingCount = (await readQueue()).length; renderSyncStatus(); }
-async function enqueue(type, payload) {
-  await offlineStore("queue", "readwrite", (store) => store.add({ userId: user.id, type, payload, queuedAt: now() }));
-  await saveSnapshot();
-  await refreshPendingCount();
-  if (online()) syncPending();
-}
 function renderSyncStatus() {
   if (!user) return;
-  el.syncButton.classList.toggle("hidden", !syncError && !pendingCount);
-  el.syncButton.disabled = syncing || !online();
-  if (syncing) el.savedStatus.textContent = `Synchronizacja… (${pendingCount})`;
-  else if (syncError) el.savedStatus.textContent = `Błąd synchronizacji · ${pendingCount} oczekuje`;
-  else if (pendingCount) el.savedStatus.textContent = `${pendingCount} zmian oczekuje na synchronizację`;
+  el.syncButton.classList.toggle("hidden", !syncEngine.syncError && !syncEngine.pendingCount);
+  el.syncButton.disabled = syncEngine.syncing || !online();
+  if (syncEngine.syncing) el.savedStatus.textContent = `Synchronizacja… (${syncEngine.pendingCount})`;
+  else if (syncEngine.syncError) el.savedStatus.textContent = `Błąd synchronizacji · ${syncEngine.pendingCount} oczekuje`;
+  else if (syncEngine.pendingCount) el.savedStatus.textContent = `${syncEngine.pendingCount} zmian oczekuje na synchronizację`;
   else if (!online()) el.savedStatus.textContent = "Praca offline · wszystkie lokalne zmiany zapisane";
 }
 
@@ -167,21 +123,22 @@ async function query(table, select = "*", filters = []) {
 async function loadData() {
   if (!user) return;
   if (!online()) {
-    const cached = await readSnapshot(user.id);
-    if (cached) { state = { ...emptyState(), ...cached.state }; profile = cached.profile; }
+    const cached = await syncEngine.readSnapshot(user.id);
+    if (cached) { state = { ...window.SpisownikSync.emptyState(), ...cached.state }; profile = cached.profile; }
     chooseActive();
-    await refreshPendingCount();
+    await syncEngine.refreshPendingCount();
     renderAll();
     return;
   }
   try {
+    await db.rpc("purge_expired_inventories");
     const [profiles, stores, memberships, categories, inventories, catalog, sensitiveProducts] = await Promise.all([
       query("profiles", "*", [["eq", "id", user.id]]), query("stores"), query("store_memberships"),
       query("categories", "*"), query("inventories", "*"), query("catalog_products", "*"), query("sensitive_products", "*"),
     ]);
     profile = profiles[0];
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
-    state = { ...emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
+    state = { ...window.SpisownikSync.emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
     const inventoryIds = inventories.map((x) => x.id);
     const storeIds = [...approvedStoreIds()];
     const extra = await Promise.all([
@@ -192,103 +149,20 @@ async function loadData() {
       storeIds.length ? query("suspicious_transactions", "*", [["in", "store_id", storeIds]]) : [],
     ]);
     state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3]; state.suspiciousTransactions = extra[4];
-    applyPending(await readQueue());
+    SpisownikSync.applyPending(state, await syncEngine.readQueue());
     chooseActive();
-    await saveSnapshot();
-    await refreshPendingCount();
+    await syncEngine.saveSnapshot();
+    await syncEngine.refreshPendingCount();
     el.savedStatus.textContent = `Zsynchronizowano: ${new Intl.DateTimeFormat("pl-PL", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`;
     renderAll();
     maybeShowDailyReminder();
   } catch (error) {
-    const cached = await readSnapshot(user.id);
+    const cached = await syncEngine.readSnapshot(user.id);
     if (cached) {
-      state = { ...emptyState(), ...cached.state }; profile = cached.profile; chooseActive(); await refreshPendingCount(); renderAll();
+      state = { ...window.SpisownikSync.emptyState(), ...cached.state }; profile = cached.profile; chooseActive(); await syncEngine.refreshPendingCount(); renderAll();
       showToast("Nie udało się połączyć z serwerem. Pracujesz na danych lokalnych.");
     } else report(error, "Nie udało się pobrać danych.");
   }
-}
-
-function upsertLocal(collection, value) {
-  const index = collection.findIndex((item) => item.id === value.id);
-  if (index === -1) collection.push(value);
-  else collection[index] = { ...collection[index], ...value };
-}
-function applyOperation(operation) {
-  const value = operation.payload;
-  if (operation.type === "inventory_upsert") upsertLocal(state.inventories, value);
-  if (operation.type === "item_upsert") {
-    if (value.deleted_at) state.items = state.items.filter((item) => item.id !== value.id);
-    else upsertLocal(state.items, value);
-  }
-  if (operation.type === "flag_update") upsertLocal(state.items, value);
-  if (operation.type === "verified_update") upsertLocal(state.items, value);
-}
-function applyPending(operations) { operations.forEach(applyOperation); }
-
-function operationInventoryId(operation) {
-  return operation.type === "inventory_upsert" ? operation.payload.id : operation.payload.inventory_id;
-}
-
-async function discardStaleArchivedOperations(inventoryId) {
-  const operations = await readQueue();
-  const stale = operations.filter((operation) =>
-    operationInventoryId(operation) === inventoryId && ["inventory_upsert", "item_upsert"].includes(operation.type));
-  await Promise.all(stale.map((operation) => offlineStore("queue", "readwrite", (store) => store.delete(operation.id))));
-  pendingCount = Math.max(0, pendingCount - stale.length);
-  return stale;
-}
-
-async function queuedOperationsForInventory(inventoryId) {
-  return (await readQueue()).filter((operation) => operationInventoryId(operation) === inventoryId);
-}
-
-async function discardOperationsForInventory(inventoryId) {
-  const operations = await queuedOperationsForInventory(inventoryId);
-  await Promise.all(operations.map((operation) => offlineStore("queue", "readwrite", (store) => store.delete(operation.id))));
-  await refreshPendingCount();
-}
-
-async function syncPending() {
-  if (!online() || syncing || !user) return;
-  syncing = true; syncError = ""; renderSyncStatus();
-  const operations = await readQueue();
-  const discardedIds = new Set();
-  pendingCount = operations.length;
-  for (const operation of operations) {
-    if (discardedIds.has(operation.id)) continue;
-    const rpc = operation.type === "inventory_upsert" ? "sync_inventory"
-      : operation.type === "flag_update" ? "set_inventory_item_flag"
-        : operation.type === "verified_update" ? "set_inventory_item_verified"
-          : "sync_inventory_item";
-    const args = operation.type === "flag_update" ? { target_item: operation.payload.id, assigned: operation.payload.flag_assigned }
-      : operation.type === "verified_update" ? { target_item: operation.payload.id, verified_value: operation.payload.verified }
-        : { payload: operation.payload };
-    const { error } = await db.rpc(rpc, args);
-    if (error) {
-      const inventoryId = operationInventoryId(operation);
-      if (inventoryId && ["inventory_upsert", "item_upsert"].includes(operation.type)) {
-        const { data: serverInventory } = await db.from("inventories").select("status").eq("id", inventoryId).maybeSingle();
-        if (serverInventory?.status === "archived") {
-          const discarded = await discardStaleArchivedOperations(inventoryId);
-          discarded.forEach((item) => discardedIds.add(item.id));
-          showToast(`Odrzucono ${discarded.length} nieaktualnych zmian archiwalnego spisu.`);
-          renderSyncStatus();
-          continue;
-        }
-      }
-      syncError = error.message;
-      syncing = false;
-      renderSyncStatus();
-      report(error, "Nie udało się zsynchronizować zmian.");
-      return;
-    }
-    await offlineStore("queue", "readwrite", (store) => store.delete(operation.id));
-    pendingCount -= 1;
-    renderSyncStatus();
-  }
-  syncing = false;
-  await loadData();
-  if (pendingCount) syncPending();
 }
 
 function chooseActive() {
@@ -354,9 +228,9 @@ function renderInventory() {
   el.undoLastItemButton.classList.toggle("hidden", !editable || activeItems().length === 0);
   if (archived) {
     const missing = missingFlags(inventory.id), deadline = archiveDeadline(inventory), expired = deadline <= new Date();
-    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · koniec archiwum ${date(deadline)}${isAdmin() ? " · edycja administratora" : ""}`;
+    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · automatyczne usunięcie ${date(deadline)}${isAdmin() ? " · edycja administratora" : ""}`;
     el.restoreArchiveButton.classList.toggle("hidden", !isAdmin());
-    el.deleteArchiveButton.classList.toggle("hidden", !(isAdmin() || (expired && missing === 0)));
+    el.deleteArchiveButton.classList.toggle("hidden", !(isAdmin() || expired));
   } else {
     el.restoreArchiveButton.classList.add("hidden");
     el.deleteArchiveButton.classList.add("hidden");
@@ -394,6 +268,17 @@ function renderInventory() {
     const verifiedCheckbox = node.querySelector(".verified-checkbox");
     verifiedCheckbox.checked = Boolean(product.verified);
     verifiedCheckbox.onchange = () => setProductVerified(product, verifiedCheckbox.checked);
+    const verifiedPeriod = node.querySelector(".verified-period");
+    verifiedPeriod.classList.toggle("hidden", !archived);
+    const periodLocked = Boolean(product.verified);
+    verifiedPeriod.classList.toggle("disabled", periodLocked);
+    const fromInput = node.querySelector(".verified-from-input");
+    const toInput = node.querySelector(".verified-to-input");
+    fromInput.value = product.verified_from || "";
+    toInput.value = product.verified_to || "";
+    fromInput.disabled = toInput.disabled = periodLocked;
+    fromInput.onchange = () => setProductVerifiedPeriod(product, fromInput.value, toInput.value);
+    toInput.onchange = () => setProductVerifiedPeriod(product, fromInput.value, toInput.value);
     el.productList.append(node);
   }
   const items = activeItems();
@@ -600,7 +485,7 @@ async function onAuth(session) {
     el.savedStatus.textContent = "Pobieranie danych…";
     await loadData();
   } else {
-    profile = null; state = emptyState(); pendingCount = 0; syncing = false; syncError = "";
+    profile = null; state = window.SpisownikSync.emptyState(); syncEngine.reset();
   }
 }
 
@@ -613,7 +498,7 @@ function scheduleAuth(session) {
 
 async function refreshCategoryData() {
   state.categories = await query("categories", "*");
-  await saveSnapshot();
+  await syncEngine.saveSnapshot();
   renderCategories();
   renderInventory();
   renderAdmin();
@@ -686,7 +571,7 @@ function openInventory(id) { activeInventoryId = id; renderAll(); if (el.setting
 async function finishInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
-  if ((await queuedOperationsForInventory(inventory.id)).length || syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
+  if ((await syncEngine.queuedOperationsForInventory(inventory.id)).length || syncEngine.syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
   if (!confirm("Zakończyć spis i przenieść go do archiwum?")) return;
   const { error } = await db.rpc("archive_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
@@ -697,7 +582,7 @@ async function cancelInventory() {
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
   if (!confirm(`Anulować spis „${inventory.name}”? Spis i jego pozycje zostaną usunięte.`)) return;
   if (isAdmin() && activeItems().length === 0) return deleteBrokenEmptyInventory(inventory);
-  if ((await queuedOperationsForInventory(inventory.id)).length || syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
+  if ((await syncEngine.queuedOperationsForInventory(inventory.id)).length || syncEngine.syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
   const { error } = await db.rpc("cancel_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
   activeInventoryId = null; showToast("Spis został anulowany."); await loadData();
@@ -707,7 +592,7 @@ async function deleteBrokenEmptyInventory(inventory) {
   const { data: serverInventory, error: inventoryError } = await db.from("inventories").select("id,status").eq("id", inventory.id).maybeSingle();
   if (inventoryError) return report(inventoryError, "Nie udało się sprawdzić spisu.");
   if (!serverInventory) {
-    await discardOperationsForInventory(inventory.id);
+    await syncEngine.discardOperationsForInventory(inventory.id);
     activeInventoryId = null;
     showToast("Usunięto lokalny pusty spis.");
     return loadData();
@@ -718,20 +603,25 @@ async function deleteBrokenEmptyInventory(inventory) {
   const rpc = serverInventory.status === "archived" ? "delete_archived_inventory" : "delete_empty_active_inventory";
   const { error } = await db.rpc(rpc, { target_inventory: inventory.id });
   if (error) return report(error, "Nie udało się usunąć pustego spisu.");
-  await discardOperationsForInventory(inventory.id);
+  await syncEngine.discardOperationsForInventory(inventory.id);
   activeInventoryId = null;
   showToast("Pusty spis został bezpiecznie usunięty.");
   await loadData();
 }
 async function setProductFlag(product, assigned) {
   const changed = { ...product, flag_assigned: assigned, updated_at: now() };
-  upsertLocal(state.items, changed); renderAll();
-  await enqueue("flag_update", changed);
+  SpisownikSync.upsertLocal(state.items, changed); renderAll();
+  await syncEngine.enqueue("flag_update", changed);
 }
 async function setProductVerified(product, verified) {
   const changed = { ...product, verified, updated_at: now() };
-  upsertLocal(state.items, changed); renderAll();
-  await enqueue("verified_update", changed);
+  SpisownikSync.upsertLocal(state.items, changed); renderAll();
+  await syncEngine.enqueue("verified_update", changed);
+}
+async function setProductVerifiedPeriod(product, from, to) {
+  const changed = { ...product, verified_from: from || null, verified_to: to || null, updated_at: now() };
+  SpisownikSync.upsertLocal(state.items, changed); renderAll();
+  await syncEngine.enqueue("verified_period_update", changed);
 }
 async function deleteArchivedInventory() {
   const inventory = activeInventory();
@@ -743,7 +633,7 @@ async function deleteArchivedInventory() {
 async function restoreArchivedInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "archived" || !isAdmin() || !requireOnline()) return;
-  if (pendingCount || syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
+  if (syncEngine.pendingCount || syncEngine.syncing) return showToast("Najpierw zsynchronizuj wszystkie zmiany.");
   if (!confirm(`Przywrócić spis „${inventory.name}” do aktywnych?`)) return;
   const { error } = await db.rpc("restore_archived_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
@@ -754,14 +644,14 @@ async function newInventory() {
   if (!activeStoreId) return;
   const timestamp = now();
   const inventory = { id: crypto.randomUUID(), store_id: activeStoreId, name: defaultInventoryName(), status: "active", created_by: user.id, created_at: timestamp, updated_at: timestamp };
-  upsertLocal(state.inventories, inventory); activeInventoryId = inventory.id; renderAll();
-  await enqueue("inventory_upsert", inventory);
+  SpisownikSync.upsertLocal(state.inventories, inventory); activeInventoryId = inventory.id; renderAll();
+  await syncEngine.enqueue("inventory_upsert", inventory);
 }
 async function renameInventory() {
   const inventory = activeInventory(); if (!canEditInventory(inventory)) return;
   const changed = { ...inventory, name: el.sessionName.value.trim() || defaultInventoryName(), updated_at: now() };
-  upsertLocal(state.inventories, changed); renderAll();
-  await enqueue("inventory_upsert", changed);
+  SpisownikSync.upsertLocal(state.inventories, changed); renderAll();
+  await syncEngine.enqueue("inventory_upsert", changed);
 }
 
 function resetForm() { el.productForm.reset(); el.quantity.value = 1; el.editingId.value = ""; el.formTitle.textContent = "Dodaj produkt"; el.submitButton.textContent = "Dodaj do spisu"; el.cancelEditButton.classList.add("hidden"); el.formError.textContent = ""; renderCategories(); }
@@ -771,7 +661,7 @@ async function deleteProduct(product) {
   if (!confirm(`Usunąć „${product.name}” ze spisu?`)) return;
   const deleted = { ...product, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
   state.items = state.items.filter((item) => item.id !== product.id); resetForm(); renderAll();
-  await enqueue("item_upsert", deleted);
+  await syncEngine.enqueue("item_upsert", deleted);
 }
 async function undoLastItem() {
   if (!canEditInventory()) return;
@@ -780,7 +670,7 @@ async function undoLastItem() {
   if (!confirm(`Usunąć ostatnio dodaną pozycję „${last.name}”?`)) return;
   const deleted = { ...last, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
   state.items = state.items.filter((item) => item.id !== last.id); resetForm(); renderAll();
-  await enqueue("item_upsert", deleted);
+  await syncEngine.enqueue("item_upsert", deleted);
 }
 
 async function submitProduct(event) {
@@ -795,7 +685,7 @@ async function submitProduct(event) {
     ...existing, ...product, id: editingId || crypto.randomUUID(), inventory_id: activeInventoryId, store_id: activeStoreId,
     created_at: existing?.created_at || timestamp, updated_at: timestamp, deleted_at: null,
   };
-  upsertLocal(state.items, item);
+  SpisownikSync.upsertLocal(state.items, item);
   const catalogIndex = state.catalog.findIndex((entry) => entry.ean === item.ean);
   const localCatalog = { ean: item.ean, name: item.name, category_id: item.category_id, updated_at: timestamp, updated_by: user.id };
   if (catalogIndex === -1) state.catalog.push(localCatalog); else state.catalog[catalogIndex] = localCatalog;
@@ -803,7 +693,7 @@ async function submitProduct(event) {
   const localPrice = { store_id: activeStoreId, ean: item.ean, price: item.price, updated_at: timestamp, updated_by: user.id };
   if (priceIndex === -1) state.prices.push(localPrice); else state.prices[priceIndex] = localPrice;
   resetForm(); renderAll();
-  await enqueue("item_upsert", item);
+  await syncEngine.enqueue("item_upsert", item);
 }
 
 async function resolveEan() {
@@ -1082,18 +972,18 @@ $("#adminAddStore").onclick = async () => {
 };
 el.settingsButton.onclick = () => { renderAll(); el.settingsDialog.showModal(); }; el.remindersButton.onclick = () => el.remindersDialog.showModal();
 el.adminButton.onclick = () => { renderAll(); el.adminDialog.showModal(); };
-el.syncButton.onclick = syncPending;
+el.syncButton.onclick = () => syncEngine.syncPending();
 $("#logoutButton").onclick = async () => {
-  const queued = await readQueue();
+  const queued = await syncEngine.readQueue();
   if (queued.length && !confirm(`Masz ${queued.length} niewysłanych zmian. Odrzucić je i wylogować się?`)) return;
   const userId = user.id;
-  await clearOfflineData(userId);
+  await syncEngine.clearOfflineData(userId);
   await db.auth.signOut({ scope: "local" });
 }; $("#migrateButton").onclick = migrateLegacy; $("#exportBackupButton").onclick = exportBackup; $("#exportCsvButton").onclick = exportCsv;
 $("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => document.getElementById(button.dataset.close).close());
 $("#themeButton").onclick = () => { const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem(THEME_KEY, theme); };
-window.addEventListener("online", syncPending); window.addEventListener("offline", renderAll);
+window.addEventListener("online", () => syncEngine.syncPending()); window.addEventListener("offline", renderAll);
 document.documentElement.dataset.theme = localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 el.configWarning.classList.toggle("hidden", configured);
 if (configured) {

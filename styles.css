@@ -1049,6 +1049,33 @@ dialog::backdrop {
   font-weight: 750;
 }
 
+.verified-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.verified-period-label {
+  flex-basis: 100%;
+}
+
+.verified-period input {
+  padding: 3px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.verified-period.disabled {
+  opacity: 0.4;
+}
+
 .admin-store-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 7rem auto auto;
