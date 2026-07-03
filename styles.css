@@ -612,9 +612,11 @@ select {
 }
 
 .product-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 8px;
+  width: min(100%, 320px);
 }
 
 .product-actions button {
@@ -628,23 +630,6 @@ select {
 
 .product-actions .delete-button {
   color: var(--primary);
-}
-
-.flag-check {
-  display: grid;
-  justify-items: center;
-  gap: 5px;
-  max-width: 82px;
-  color: var(--muted);
-  font-size: 0.66rem;
-  font-weight: 800;
-  text-align: center;
-}
-
-.flag-check input {
-  width: 22px;
-  height: 22px;
-  accent-color: var(--primary);
 }
 
 .archive-banner {
@@ -1044,30 +1029,59 @@ dialog::backdrop {
 .verified-check {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  font-weight: 750;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.flag-check input,
+.verified-check input {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  accent-color: var(--primary);
 }
 
 .verified-period {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 9px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-muted);
   font-size: 0.66rem;
   font-weight: 800;
   color: var(--muted);
 }
 
 .verified-period-label {
-  flex-basis: 100%;
+  grid-column: 1 / -1;
 }
 
 .verified-period input {
-  padding: 3px 4px;
+  width: 100%;
+  min-height: 36px;
+  padding: 5px 6px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: transparent;
+  background: var(--surface);
   color: inherit;
   font: inherit;
 }
@@ -1084,6 +1098,16 @@ dialog::backdrop {
 }
 
 @media (max-width: 640px) {
+  .product-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-actions {
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
   .admin-store-row {
     grid-template-columns: minmax(0, 1fr) 6rem;
   }
