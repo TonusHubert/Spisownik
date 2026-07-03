@@ -553,8 +553,9 @@ select {
 
 .product-card {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  align-items: start;
+  gap: 16px;
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 15px;
@@ -616,7 +617,9 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   gap: 8px;
-  width: min(100%, 320px);
+  width: 100%;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
 }
 
 .product-actions button {
@@ -1097,16 +1100,21 @@ dialog::backdrop {
   align-items: center;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .product-card {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .product-actions {
     width: 100%;
+    padding-left: 0;
     padding-top: 10px;
+    border-left: 0;
     border-top: 1px solid var(--line);
   }
+}
+
+@media (max-width: 640px) {
 
   .admin-store-row {
     grid-template-columns: minmax(0, 1fr) 6rem;
