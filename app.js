@@ -25,6 +25,9 @@ const el = {
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
+  shortagesSummaryButton: $("#shortagesSummaryButton"), shortagesSummaryDialog: $("#shortagesSummaryDialog"), shortagesStoreName: $("#shortagesStoreName"),
+  shortagesSort: $("#shortagesSort"), shortagesTableBody: $("#shortagesTableBody"), shortagesEmptyState: $("#shortagesEmptyState"),
+  shortagesPositionsStat: $("#shortagesPositionsStat"), shortagesQuantityStat: $("#shortagesQuantityStat"), shortagesValueStat: $("#shortagesValueStat"),
   toast: $("#toast"), scannerDialog: $("#scannerDialog"), scannerVideo: $("#scannerVideo"), scannerMessage: $("#scannerMessage"),
   inventoryTabButton: $("#inventoryTabButton"), sensitiveTabButton: $("#sensitiveTabButton"), sensitiveView: $("#sensitiveView"),
   sensitiveCheckForm: $("#sensitiveCheckForm"), sensitiveEan: $("#sensitiveEan"), sensitiveQuantity: $("#sensitiveQuantity"),
@@ -97,6 +100,45 @@ function showToast(message) { clearTimeout(toastTimer); el.toast.textContent = m
 function report(error, fallback = "Nie udało się wykonać operacji.") { console.error(error); showToast(error?.message || fallback); }
 function requireOnline() { if (online()) return true; showToast("Ta operacja wymaga połączenia z internetem."); return false; }
 function now() { return new Date().toISOString(); }
+function unverifiedArchiveRows(storeId = activeStoreId) {
+  const archived = new Map(state.inventories
+    .filter((inventory) => inventory.store_id === storeId && inventory.status === "archived")
+    .map((inventory) => [inventory.id, inventory]));
+  return state.items
+    .filter((item) => item.verified !== true && archived.has(item.inventory_id))
+    .map((item) => {
+      const inventory = archived.get(item.inventory_id);
+      return {
+        ...item,
+        inventory_name: inventory.name,
+        archived_at: inventory.archived_at,
+        total: Number(item.quantity) * Number(item.price),
+      };
+    });
+}
+function summaryTieBreak(a, b) {
+  return new Date(a.archived_at).getTime() - new Date(b.archived_at).getTime()
+    || String(a.name).localeCompare(String(b.name), "pl")
+    || String(a.id).localeCompare(String(b.id), "pl");
+}
+function sortUnverifiedArchiveRows(rows, sort = "date-asc") {
+  const primary = {
+    "date-asc": (a, b) => new Date(a.archived_at).getTime() - new Date(b.archived_at).getTime(),
+    "date-desc": (a, b) => new Date(b.archived_at).getTime() - new Date(a.archived_at).getTime(),
+    "value-asc": (a, b) => a.total - b.total,
+    "value-desc": (a, b) => b.total - a.total,
+    "unit-asc": (a, b) => Number(a.price) - Number(b.price),
+    "unit-desc": (a, b) => Number(b.price) - Number(a.price),
+  }[sort] || ((a, b) => new Date(a.archived_at).getTime() - new Date(b.archived_at).getTime());
+  return [...rows].sort((a, b) => primary(a, b) || summaryTieBreak(a, b));
+}
+function summarizeUnverifiedArchiveRows(rows) {
+  return {
+    positions: rows.length,
+    quantity: rows.reduce((sum, item) => sum + Number(item.quantity), 0),
+    value: rows.reduce((sum, item) => sum + Number(item.total), 0),
+  };
+}
 function sensitiveImageUrl(path) {
   if (!path || !db) return "";
   return db.storage.from("sensitive-product-images").getPublicUrl(path).data.publicUrl;
@@ -299,6 +341,42 @@ function row(title, detail, actions = []) {
   wrapper.append(text, buttons); return wrapper;
 }
 
+function renderShortagesSummary() {
+  const rows = sortUnverifiedArchiveRows(unverifiedArchiveRows(), el.shortagesSort.value);
+  const totals = summarizeUnverifiedArchiveRows(rows);
+  el.shortagesStoreName.textContent = activeStoreId ? storeName(activeStoreId) : "Nie wybrano sklepu";
+  el.shortagesPositionsStat.textContent = totals.positions;
+  el.shortagesQuantityStat.textContent = totals.quantity;
+  el.shortagesValueStat.textContent = money(totals.value);
+  el.shortagesTableBody.replaceChildren(...rows.map((item) => {
+    const tr = document.createElement("tr");
+    const values = [
+      date(item.archived_at),
+      item.inventory_name,
+      item.name,
+      item.ean,
+      item.quantity,
+      money(item.price),
+      money(item.total),
+    ];
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      if (index >= 4) cell.className = "numeric";
+      tr.append(cell);
+    });
+    return tr;
+  }));
+  el.shortagesEmptyState.classList.toggle("hidden", rows.length > 0);
+}
+
+function openShortagesSummary() {
+  if (!activeStoreId) return showToast("Najpierw wybierz sklep.");
+  el.shortagesSort.value = "date-asc";
+  renderShortagesSummary();
+  el.shortagesSummaryDialog.showModal();
+}
+
 function renderSettings() {
   el.storeSettings.replaceChildren();
   for (const store of state.stores.filter((x) => approvedStoreIds().has(x.id) && storeMatches(x, el.storeSettingsSearch.value)).sort(compareStores)) {
@@ -309,6 +387,7 @@ function renderSettings() {
     el.sessionSettings.append(row(inventory.name, `${date(inventory.created_at)} · aktywny`, [["Otwórz", () => openInventory(inventory.id)]]));
   }
   el.archiveSettings.replaceChildren();
+  el.shortagesSummaryButton.disabled = !activeStoreId;
   for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived").sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at))) {
     const missing = missingFlags(inventory.id);
     const actions = [["Otwórz", () => openInventory(inventory.id)]];
@@ -318,6 +397,7 @@ function renderSettings() {
     }
     el.archiveSettings.append(row(inventory.name, `${date(inventory.archived_at)} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, actions));
   }
+  renderShortagesSummary();
 }
 
 function renderSensitiveProducts() {
@@ -655,7 +735,22 @@ async function renameInventory() {
 }
 
 function resetForm() { el.productForm.reset(); el.quantity.value = 1; el.editingId.value = ""; el.formTitle.textContent = "Dodaj produkt"; el.submitButton.textContent = "Dodaj do spisu"; el.cancelEditButton.classList.add("hidden"); el.formError.textContent = ""; renderCategories(); }
-function editProduct(product) { el.editingId.value = product.id; el.ean.value = product.ean; el.name.value = product.name; el.category.value = product.category_id; el.quantity.value = product.quantity; el.price.value = String(product.price).replace(".", ","); el.formTitle.textContent = "Edytuj produkt"; el.submitButton.textContent = "Zapisz zmiany"; el.cancelEditButton.classList.remove("hidden"); }
+function editProduct(product) {
+  if (!canEditInventory()) return;
+  el.formError.textContent = "";
+  el.lookupStatus.textContent = "";
+  el.editingId.value = product.id;
+  el.ean.value = product.ean;
+  el.name.value = product.name;
+  el.category.value = product.category_id;
+  el.quantity.value = product.quantity;
+  el.price.value = String(product.price).replace(".", ",");
+  el.formTitle.textContent = "Edytuj produkt";
+  el.submitButton.textContent = "Zapisz zmiany";
+  el.cancelEditButton.classList.remove("hidden");
+  el.addPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.ean.focus({ preventScroll: true });
+}
 async function deleteProduct(product) {
   if (!canEditInventory()) return;
   if (!confirm(`Usunąć „${product.name}” ze spisu?`)) return;
@@ -951,6 +1046,7 @@ el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm
 el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
 el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
+el.shortagesSummaryButton.onclick = openShortagesSummary; el.shortagesSort.onchange = renderShortagesSummary;
 el.inventoryTabButton.onclick = () => { activeView = "inventories"; renderWorkspace(); };
 el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspace(); renderSensitiveProducts(); };
 el.transactionsTabButton.onclick = () => { activeView = "transactions"; renderWorkspace(); renderTransactions(); };

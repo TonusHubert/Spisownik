@@ -7,7 +7,7 @@
     <meta name="description" content="Współdzielony mobilny spis produktów." />
     <title>Spisownik</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=15" />
+    <link rel="stylesheet" href="styles.css?v=16" />
   </head>
   <body>
     <header class="topbar">
@@ -148,7 +148,7 @@
       <p id="profileSummary"></p>
       <section class="settings-section"><h3>Sklepy</h3><div class="search-field"><span>⌕</span><input id="storeSettingsSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="storeSettings"></div></section>
       <section class="settings-section"><h3>Aktywne spisy</h3><div class="session-list" id="sessionSettings"></div></section>
-      <section class="settings-section"><h3>Archiwum spisów</h3><div class="session-list" id="archiveSettings"></div></section>
+      <section class="settings-section"><div class="settings-section-heading"><h3>Archiwum spisów</h3><button class="ghost-button compact" id="shortagesSummaryButton" type="button">Podsumowanie braków</button></div><div class="session-list" id="archiveSettings"></div></section>
       <section class="settings-section"><h3>Dane lokalne</h3><p id="migrationText">Możesz jednorazowo przenieść dane ze starszej wersji zapisane na tym urządzeniu.</p><div class="form-actions"><button class="ghost-button" id="migrateButton">Importuj dane lokalne</button><button class="ghost-button" id="exportBackupButton">Eksport JSON</button></div></section>
       <button class="danger-button wide" id="logoutButton">Wyloguj się</button>
     </dialog>
@@ -173,6 +173,37 @@
       </section>
     </dialog>
 
+    <dialog class="summary-dialog" id="shortagesSummaryDialog">
+      <div class="scanner-header">
+        <div><p class="eyebrow">Archiwalne spisy</p><h2>Podsumowanie braków</h2><p class="summary-store-name" id="shortagesStoreName"></p></div>
+        <button class="icon-button" type="button" data-close="shortagesSummaryDialog" aria-label="Zamknij">×</button>
+      </div>
+      <section class="stats-grid summary-stats">
+        <article class="stat-card"><span>Pozycje</span><strong id="shortagesPositionsStat">0</strong></article>
+        <article class="stat-card"><span>Sztuki</span><strong id="shortagesQuantityStat">0</strong></article>
+        <article class="stat-card accent"><span>Wartość</span><strong id="shortagesValueStat">0,00 zł</strong></article>
+      </section>
+      <div class="summary-toolbar">
+        <label for="shortagesSort">Sortowanie</label>
+        <select id="shortagesSort">
+          <option value="date-asc">Data: od najstarszych</option>
+          <option value="date-desc">Data: od najnowszych</option>
+          <option value="value-asc">Wartość: rosnąco</option>
+          <option value="value-desc">Wartość: malejąco</option>
+          <option value="unit-asc">Cena za sztukę: rosnąco</option>
+          <option value="unit-desc">Cena za sztukę: malejąco</option>
+        </select>
+      </div>
+      <div class="summary-table-wrap">
+        <table class="summary-table">
+          <thead><tr><th>Data</th><th>Spis</th><th>Produkt</th><th>EAN/DAN</th><th class="numeric">Ilość</th><th class="numeric">Cena za szt.</th><th class="numeric">Wartość</th></tr></thead>
+          <tbody id="shortagesTableBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state hidden" id="shortagesEmptyState"><h3>Brak niezweryfikowanych pozycji</h3><p>W archiwalnych spisach tego sklepu wszystkie pozycje zostały zweryfikowane.</p></div>
+      <button class="ghost-button wide summary-close-button" type="button" data-close="shortagesSummaryDialog">Zamknij</button>
+    </dialog>
+
     <dialog id="remindersDialog">
       <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Przypomnienia</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
       <section id="inventoryReminderSection"><h3>Flagi w archiwalnych spisach</h3><p>Te spisy mają pozycje bez nadanych flag.</p><div class="session-list" id="reminderList"></div></section>
@@ -189,6 +220,6 @@
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
     <script src="sync.js?v=2" defer></script>
-    <script src="app.js?v=14" defer></script>
+    <script src="app.js?v=16" defer></script>
   </body>
 </html>
