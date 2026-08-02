@@ -21,7 +21,8 @@ const el = {
   sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
   reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"), adminEmployeeSelect: $("#adminEmployeeSelect"),
   adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminCategoryName: $("#adminCategoryName"),
-  adminCategoryList: $("#adminCategoryList"),
+  adminCategoryList: $("#adminCategoryList"), adminRetentionList: $("#adminRetentionList"), adminRetentionSummary: $("#adminRetentionSummary"), adminRetentionEmpty: $("#adminRetentionEmpty"),
+  adminRetentionRefreshButton: $("#adminRetentionRefreshButton"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
@@ -60,6 +61,7 @@ let toastTimer = null;
 let scannerControls = null;
 let scheduledAuthKey = null;
 let activeView = "inventories";
+let expiredInventories = [];
 
 const syncEngine = window.SpisownikSync.createSyncEngine({
   db,
@@ -86,7 +88,17 @@ function storeNumber(name) { return Number(String(name).match(/^\s*(\d+)/)?.[1] 
 function compareStores(a, b) { return storeNumber(a.name) - storeNumber(b.name) || a.name.localeCompare(b.name, "pl", { numeric: true }); }
 function storeMatches(store, value) { return store.name.toLocaleLowerCase("pl").includes(value.trim().toLocaleLowerCase("pl")); }
 const ARCHIVE_BUFFER_DAYS = 14;
-function archiveDeadline(inventory) { const store = state.stores.find((x) => x.id === inventory.store_id); return new Date(new Date(inventory.archived_at).getTime() + ((store?.retention_days || 0) + ARCHIVE_BUFFER_DAYS) * 86400000); }
+function archiveDeadline(inventory) {
+  const store = state.stores.find((x) => x.id === inventory.store_id);
+  const retentionDays = store?.retention_days ?? inventory.retention_days ?? 0;
+  return new Date(new Date(inventory.archived_at).getTime() + (retentionDays + ARCHIVE_BUFFER_DAYS) * 86400000);
+}
+function archiveRetentionInfo(inventory) {
+  const store = state.stores.find((x) => x.id === inventory.store_id);
+  const retentionDays = store?.retention_days ?? inventory.retention_days ?? 0;
+  const deadline = archiveDeadline(inventory);
+  return { store, retentionDays, deadline, expired: deadline <= new Date() };
+}
 function missingFlags(inventoryId) { return state.items.filter((x) => x.inventory_id === inventoryId && !x.flag_assigned).length; }
 function activeStoreTransactions() { return state.suspiciousTransactions.filter((item) => item.store_id === activeStoreId); }
 function transactionIsEligible(item) { return !item.checked_at && (item.entry_type === "application" || item.receipt_date < localDate()); }
@@ -173,13 +185,13 @@ async function loadData() {
     return;
   }
   try {
-    await db.rpc("purge_expired_inventories");
     const [profiles, stores, memberships, categories, inventories, catalog, sensitiveProducts] = await Promise.all([
       query("profiles", "*", [["eq", "id", user.id]]), query("stores"), query("store_memberships"),
       query("categories", "*"), query("inventories", "*"), query("catalog_products", "*"), query("sensitive_products", "*"),
     ]);
     profile = profiles[0];
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
+    if (!isAdmin()) expiredInventories = [];
     state = { ...window.SpisownikSync.emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
     const inventoryIds = inventories.map((x) => x.id);
     const storeIds = [...approvedStoreIds()];
@@ -269,10 +281,10 @@ function renderInventory() {
   el.cancelSessionButton.classList.toggle("hidden", !inventory || archived);
   el.undoLastItemButton.classList.toggle("hidden", !editable || activeItems().length === 0);
   if (archived) {
-    const missing = missingFlags(inventory.id), deadline = archiveDeadline(inventory), expired = deadline <= new Date();
-    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · automatyczne usunięcie ${date(deadline)}${isAdmin() ? " · edycja administratora" : ""}`;
+    const missing = missingFlags(inventory.id), { deadline } = archiveRetentionInfo(inventory);
+    el.archiveStatus.textContent = `${missing ? `${missing} pozycji bez flagi` : "Wszystkie flagi nadane"} · retencja wygasa ${date(deadline)}${isAdmin() ? " · edycja administratora" : ""}`;
     el.restoreArchiveButton.classList.toggle("hidden", !isAdmin());
-    el.deleteArchiveButton.classList.toggle("hidden", !(isAdmin() || expired));
+    el.deleteArchiveButton.classList.toggle("hidden", !isAdmin());
   } else {
     el.restoreArchiveButton.classList.add("hidden");
     el.deleteArchiveButton.classList.add("hidden");
@@ -390,12 +402,13 @@ function renderSettings() {
   el.shortagesSummaryButton.disabled = !activeStoreId;
   for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived").sort((a, b) => new Date(b.archived_at) - new Date(a.archived_at))) {
     const missing = missingFlags(inventory.id);
+    const { store, retentionDays, deadline, expired } = archiveRetentionInfo(inventory);
     const actions = [["Otwórz", () => openInventory(inventory.id)]];
     if (isAdmin()) {
       actions.push(["Przywróć", () => { openInventory(inventory.id); restoreArchivedInventory(); }]);
       actions.push(["Usuń", () => { openInventory(inventory.id); deleteArchivedInventory(); }, true]);
     }
-    el.archiveSettings.append(row(inventory.name, `${date(inventory.archived_at)} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, actions));
+    el.archiveSettings.append(row(inventory.name, `${store?.name || "Nieznany sklep"} · archiwum ${date(inventory.archived_at)} · retencja ${retentionDays} dni · usunięcie od ${date(deadline)} · ${expired ? "wygasł" : "okres jeszcze trwa"} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, actions));
   }
   renderShortagesSummary();
 }
@@ -516,6 +529,25 @@ function renderReminders() {
 }
 
 function renderAdmin() {
+  if (!isAdmin()) {
+    expiredInventories = [];
+    return;
+  }
+  const archivedInventories = state.inventories
+    .filter((inventory) => inventory.status === "archived")
+    .sort((a, b) => new Date(a.archived_at) - new Date(b.archived_at));
+  el.adminRetentionSummary.textContent = expiredInventories.length
+    ? `${expiredInventories.length} ${expiredInventories.length === 1 ? "wygasły spis oczekuje" : "wygasłe spisy oczekują"} na decyzję administratora.`
+    : "Brak wygasłych archiwów do usunięcia.";
+  el.adminRetentionList.replaceChildren(...archivedInventories.map((inventory) => {
+    const { store, retentionDays, deadline, expired } = archiveRetentionInfo(inventory);
+    return row(
+      `${store?.name || "Nieznany sklep"} · ${inventory.name}`,
+      `Archiwum ${date(inventory.archived_at)} · retencja ${retentionDays} dni · usunięcie od ${date(deadline)} · ${expired ? "wygasł" : "okres jeszcze trwa"}`,
+      [["Trwale usuń", () => deleteArchivedInventory(inventory), true]],
+    );
+  }));
+  el.adminRetentionEmpty.classList.toggle("hidden", archivedInventories.length > 0);
   el.adminStoreList.replaceChildren(...state.stores.filter((x) => storeMatches(x, el.adminStoreSearch.value)).sort(compareStores).map((store) => {
     const wrapper = document.createElement("form"); wrapper.className = "admin-store-row";
     wrapper.innerHTML = `<input name="name" maxlength="80" required /><input name="retention" type="number" min="1" max="365" required aria-label="Dni archiwum" /><button class="ghost-button compact" type="submit">Zapisz</button><button class="danger-button compact" type="button">Usuń</button>`;
@@ -703,13 +735,37 @@ async function setProductVerifiedPeriod(product, from, to) {
   SpisownikSync.upsertLocal(state.items, changed); renderAll();
   await syncEngine.enqueue("verified_period_update", changed);
 }
-async function deleteArchivedInventory() {
-  const inventory = activeInventory();
-  if (!inventory || !requireOnline() || !confirm("Trwale usunąć ten spis z archiwum? Tej operacji nie można cofnąć.")) return;
+async function refreshExpiredInventoryCandidates(silent = false) {
+  if (!isAdmin() || !online()) return;
+  try {
+    const refreshed = await db.rpc("refresh_expired_inventory_candidates");
+    if (refreshed.error) throw refreshed.error;
+    const result = await db.rpc("get_expired_inventory_candidates");
+    if (result.error) throw result.error;
+    expiredInventories = result.data || [];
+    renderAdmin();
+  } catch (error) {
+    if (silent) console.error(error);
+    else report(error, "Nie udało się odświeżyć listy wygasłych archiwów.");
+  }
+}
+
+async function deleteArchivedInventory(targetInventory = activeInventory()) {
+  const inventory = state.inventories.find((item) => item.id === targetInventory?.id)
+    || (targetInventory ? { ...targetInventory, status: "archived" } : null);
+  if (!inventory || inventory.status !== "archived" || !isAdmin() || !requireOnline()) return;
+  const { deadline, expired } = archiveRetentionInfo(inventory);
+  const warning = expired ? "" : "\n\nUwaga: okres archiwizacji tego spisu jeszcze nie minął.";
+  const confirmation = `Czy na pewno chcesz trwale usunąć spis „${inventory.name}” z dnia ${date(inventory.archived_at)}? Tej operacji nie można cofnąć.${warning}`;
+  if (!confirm(confirmation)) return;
   const { error } = await db.rpc("delete_archived_inventory", { target_inventory: inventory.id });
   if (error) return report(error);
-  activeInventoryId = null; showToast("Spis został trwale usunięty."); await loadData();
+  if (activeInventoryId === inventory.id) activeInventoryId = null;
+  showToast(`Spis został trwale usunięty. Termin retencji: ${date(deadline)}.`);
+  await loadData();
+  await refreshExpiredInventoryCandidates(true);
 }
+
 async function restoreArchivedInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "archived" || !isAdmin() || !requireOnline()) return;
@@ -1067,7 +1123,8 @@ $("#adminAddStore").onclick = async () => {
   const { error } = await db.from("stores").insert({ name, retention_days, created_by: user.id }); if (error) report(error); else { $("#adminStoreName").value = ""; await loadData(); }
 };
 el.settingsButton.onclick = () => { renderAll(); el.settingsDialog.showModal(); }; el.remindersButton.onclick = () => el.remindersDialog.showModal();
-el.adminButton.onclick = () => { renderAll(); el.adminDialog.showModal(); };
+el.adminButton.onclick = () => { renderAll(); el.adminDialog.showModal(); refreshExpiredInventoryCandidates(); };
+el.adminRetentionRefreshButton.onclick = () => refreshExpiredInventoryCandidates();
 el.syncButton.onclick = () => syncEngine.syncPending();
 $("#logoutButton").onclick = async () => {
   const queued = await syncEngine.readQueue();

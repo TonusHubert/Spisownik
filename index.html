@@ -155,6 +155,12 @@
 
     <dialog id="adminDialog">
       <div class="scanner-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
+      <section class="settings-section" id="adminRetentionSection">
+        <div class="settings-section-heading"><h3>Archiwa i retencja</h3><button class="ghost-button compact" id="adminRetentionRefreshButton" type="button" data-online-only>Odśwież</button></div>
+        <p id="adminRetentionSummary">Sprawdzanie wygasłych archiwów…</p>
+        <div class="session-list" id="adminRetentionList"></div>
+        <div class="empty-state" id="adminRetentionEmpty"><h3>Brak archiwów</h3><p>Nie ma jeszcze żadnych zarchiwizowanych spisów.</p></div>
+      </section>
       <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
       <section class="settings-section"><h3>Przypisania pracowników</h3><div class="form-actions"><select id="adminEmployeeSelect" aria-label="Pracownik" data-online-only></select><select id="adminMembershipStore" aria-label="Sklep" data-online-only></select><button class="primary-button" id="adminAddMembership" data-online-only>Przypisz</button></div><div class="session-list" id="adminMembershipList"></div></section>
       <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="adminCategoryName" maxlength="80" placeholder="Nazwa kategorii" data-online-only /><button class="primary-button" id="adminAddCategory" data-online-only>Dodaj</button></div><div class="session-list" id="adminCategoryList"></div></section>
@@ -220,6 +226,6 @@
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
     <script src="sync.js?v=2" defer></script>
-    <script src="app.js?v=16" defer></script>
+    <script src="app.js?v=17" defer></script>
   </body>
 </html>
