@@ -696,6 +696,36 @@ dialog::backdrop {
   backdrop-filter: blur(4px);
 }
 
+#destructiveActionDialog {
+  width: min(100% - 28px, 560px);
+}
+
+.destructive-summary {
+  max-height: 230px;
+  margin: 14px 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+#destructiveActionDialog label {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.destructive-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 #adminDialog {
   width: min(100% - 28px, 1040px);
   height: min(90dvh, 820px);

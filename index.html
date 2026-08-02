@@ -195,7 +195,13 @@
           </form>
           <div class="session-list" id="sensitiveAdminList"></div>
         </section>
-        <section class="admin-panel hidden" id="adminPanelAudit" role="tabpanel" aria-labelledby="adminTabAudit" data-admin-panel="audit">
+<section class="admin-panel hidden" id="adminPanelAudit" role="tabpanel" aria-labelledby="adminTabAudit" data-admin-panel="audit">
+          <section class="admin-subsection" id="adminDeletedDataSection">
+            <div class="settings-section-heading"><div><p class="eyebrow">Odzyskiwanie</p><h3>Usunięte dane</h3></div><button class="ghost-button compact" id="adminAuditRefreshButton" type="button" data-online-only>Odśwież</button></div>
+            <p class="settings-note" id="adminDeletedDataStatus">Usunięte dane są dostępne tylko online.</p>
+            <div class="session-list" id="adminDeletedDataList"></div>
+            <div class="empty-state hidden" id="adminDeletedDataEmpty"><h3>Brak usuniętych danych</h3><p>Rekordy możliwe do odzyskania pojawią się tutaj.</p></div>
+          </section>
           <section class="settings-section admin-subsection" id="adminRetentionSection">
             <div class="settings-section-heading"><div><p class="eyebrow">Porządek danych</p><h3>Archiwa i retencja</h3></div><button class="ghost-button compact" id="adminRetentionRefreshButton" type="button" data-online-only>Odśwież</button></div>
             <p id="adminRetentionSummary">Sprawdzanie wygasłych archiwów…</p>
@@ -203,15 +209,31 @@
             <div class="empty-state" id="adminRetentionEmpty"><h3>Brak archiwów</h3><p>Nie ma jeszcze żadnych zarchiwizowanych spisów.</p></div>
           </section>
           <section class="admin-subsection" id="adminAuditSection">
-            <div class="settings-section-heading"><div><p class="eyebrow">Historia operacji</p><h3>Usunięte archiwa</h3></div><button class="ghost-button compact" id="adminAuditRefreshButton" type="button" data-online-only>Odśwież</button></div>
-            <p class="settings-note" id="adminAuditStatus">Historia usuniętych archiwów jest dostępna tylko online.</p>
-            <div class="admin-audit-table-wrap"><table class="admin-audit-table"><thead><tr><th>Spis</th><th>Sklep</th><th>Usunięto</th><th>Elementy</th><th>Operator</th></tr></thead><tbody id="adminAuditList"></tbody></table></div>
-            <div class="empty-state hidden" id="adminAuditEmpty"><h3>Brak wpisów audytu</h3><p>Usunięte archiwa pojawią się tutaj.</p></div>
+            <div class="settings-section-heading"><div><p class="eyebrow">Historia operacji</p><h3>Audyt usunięć i przywróceń</h3></div></div>
+            <p class="settings-note" id="adminAuditStatus">Historia operacji jest dostępna tylko online.</p>
+            <div class="admin-audit-table-wrap"><table class="admin-audit-table"><thead><tr><th>Operacja i dane</th><th>Sklep</th><th>Data</th><th>Zakres / powód</th><th>Operator</th></tr></thead><tbody id="adminAuditList"></tbody></table></div>
+            <div class="empty-state hidden" id="adminAuditEmpty"><h3>Brak wpisów audytu</h3><p>Operacje usuwania i przywracania pojawią się tutaj.</p></div>
           </section>
         </section>
       </div>
     </dialog>
 
+    <dialog id="destructiveActionDialog">
+      <div class="scanner-header"><div><p class="eyebrow">Operacja wymagająca potwierdzenia</p><h2 id="destructiveActionTitle">Usunięcie danych</h2></div></div>
+      <p class="settings-note">Operacja jest odwracalna przez 14 dni. Zakres zostanie ponownie sprawdzony po stronie serwera.</p>
+      <pre class="destructive-summary" id="destructiveActionSummary"></pre>
+      <label class="hidden" id="destructiveActionStoreNameField">Wpisz dokładną nazwę sklepu<input id="destructiveActionStoreName" maxlength="80" autocomplete="off" /></label>
+      <label>Powód operacji
+        <select id="destructiveActionReason">
+          <option value="błąd wpisu">Błąd wpisu</option>
+          <option value="duplikat">Duplikat</option>
+          <option value="zakończenie pracy">Zakończenie pracy</option>
+          <option value="other">Inna przyczyna</option>
+        </select>
+      </label>
+      <label class="hidden" id="destructiveActionReasonDetail">Opisz przyczynę<input id="destructiveActionReasonDetailInput" maxlength="500" /></label>
+      <div class="form-actions destructive-actions"><button class="ghost-button" id="destructiveActionCancel" type="button">Anuluj</button><button class="danger-button" id="destructiveActionConfirm" type="button">Usuń</button></div>
+    </dialog>
     <dialog class="summary-dialog" id="shortagesSummaryDialog">
       <div class="scanner-header">
         <div><p class="eyebrow">Archiwalne spisy</p><h2>Podsumowanie braków</h2><p class="summary-store-name" id="shortagesStoreName"></p></div>
