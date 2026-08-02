@@ -55,8 +55,11 @@
         </nav>
 
         <section class="empty-state hidden" id="noStoresState">
-          <h3>Nie masz jeszcze dostępu do sklepu</h3>
-          <p>Otwórz ustawienia, wybierz sklep z listy i wyślij prośbę o przypisanie.</p>
+          <h3 id="noStoresTitle">Nie masz jeszcze dostępu do sklepu</h3>
+          <p id="noStoresDescription">Wybierz sklep z listy i wyślij prośbę o przypisanie.</p>
+          <div class="search-field"><span>⌕</span><input id="storeRequestSearch" type="search" placeholder="Szukaj sklepu po numerze lub nazwie" /></div>
+          <div class="session-list" id="storeRequestList"></div>
+          <div class="empty-state hidden" id="storeRequestEmpty"><h3>Brak sklepów</h3><p>Administrator nie dodał jeszcze żadnego sklepu.</p></div>
         </section>
 
         <div id="inventoryView">
@@ -163,6 +166,7 @@
       </section>
       <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
       <section class="settings-section"><h3>Przypisania pracowników</h3><div class="form-actions"><select id="adminEmployeeSelect" aria-label="Pracownik" data-online-only></select><select id="adminMembershipStore" aria-label="Sklep" data-online-only></select><button class="primary-button" id="adminAddMembership" data-online-only>Przypisz</button></div><div class="session-list" id="adminMembershipList"></div></section>
+      <section class="settings-section" id="adminMembershipRequestsSection"><h3>Oczekujące prośby</h3><div class="session-list" id="adminPendingRequestList"></div><div class="empty-state hidden" id="adminPendingRequestEmpty"><h3>Brak oczekujących próśb</h3><p>Nowe prośby pracowników pojawią się tutaj.</p></div></section>
       <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="adminCategoryName" maxlength="80" placeholder="Nazwa kategorii" data-online-only /><button class="primary-button" id="adminAddCategory" data-online-only>Dodaj</button></div><div class="session-list" id="adminCategoryList"></div></section>
       <section class="settings-section">
         <h3>Produkty wrażliwe</h3>

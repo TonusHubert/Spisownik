@@ -12,7 +12,7 @@ const el = {
   email: $("#email"), password: $("#password"), configWarning: $("#configWarning"), settingsButton: $("#settingsButton"),
   adminButton: $("#adminButton"), remindersButton: $("#remindersButton"), reminderBadge: $("#reminderBadge"), settingsDialog: $("#settingsDialog"),
   adminDialog: $("#adminDialog"), remindersDialog: $("#remindersDialog"), storeSelect: $("#storeSelect"), storeSearch: $("#storeSearch"), sessionName: $("#sessionName"),
-  savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), inventoryView: $("#inventoryView"),
+  savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), noStoresTitle: $("#noStoresTitle"), noStoresDescription: $("#noStoresDescription"), storeRequestSearch: $("#storeRequestSearch"), storeRequestList: $("#storeRequestList"), storeRequestEmpty: $("#storeRequestEmpty"), inventoryView: $("#inventoryView"),
   itemsStat: $("#itemsStat"), quantityStat: $("#quantityStat"), valueStat: $("#valueStat"), productForm: $("#productForm"),
   editingId: $("#editingId"), ean: $("#ean"), name: $("#name"), category: $("#category"), quantity: $("#quantity"), price: $("#price"),
   formError: $("#formError"), submitButton: $("#submitButton"), cancelEditButton: $("#cancelEditButton"), formTitle: $("#formTitle"),
@@ -20,7 +20,7 @@ const el = {
   productList: $("#productList"), productTemplate: $("#productTemplate"), emptyState: $("#emptyState"), storeSettings: $("#storeSettings"),
   sessionSettings: $("#sessionSettings"), archiveSettings: $("#archiveSettings"), profileSummary: $("#profileSummary"),
   reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"), adminEmployeeSelect: $("#adminEmployeeSelect"),
-  adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminCategoryName: $("#adminCategoryName"),
+  adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminPendingRequestList: $("#adminPendingRequestList"), adminPendingRequestEmpty: $("#adminPendingRequestEmpty"), adminCategoryName: $("#adminCategoryName"),
   adminCategoryList: $("#adminCategoryList"), adminRetentionList: $("#adminRetentionList"), adminRetentionSummary: $("#adminRetentionSummary"), adminRetentionEmpty: $("#adminRetentionEmpty"),
   adminRetentionRefreshButton: $("#adminRetentionRefreshButton"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
@@ -78,6 +78,9 @@ function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
 function approvedStoreIds() {
   return new Set(isAdmin() ? state.stores.map((store) => store.id) : state.memberships.filter((membership) => membership.status === "approved").map((membership) => membership.store_id));
+}
+function membershipForStore(storeId) {
+  return state.memberships.find((membership) => membership.store_id === storeId && membership.user_id === user?.id);
 }
 function activeInventory() { return state.inventories.find((x) => x.id === activeInventoryId); }
 function activeItems() { return state.items.filter((x) => x.inventory_id === activeInventoryId); }
@@ -244,7 +247,48 @@ function renderStores() {
   const filtered = approved.filter((s) => storeMatches(s, el.storeSearch.value));
   el.storeSelect.replaceChildren(...filtered.map((s) => new Option(s.name, s.id)));
   el.storeSelect.value = activeStoreId || "";
-  el.noStoresState.classList.toggle("hidden", approved.length > 0);
+  const canRequest = Boolean(user && !isAdmin());
+  el.noStoresState.classList.toggle("hidden", !canRequest);
+  el.noStoresTitle.textContent = approved.length ? "Potrzebujesz dostępu do kolejnego sklepu?" : "Nie masz jeszcze dostępu do sklepu";
+  el.noStoresDescription.textContent = approved.length
+    ? "Wybierz sklep z listy i wyślij prośbę o przypisanie."
+    : "Wybierz sklep z listy i wyślij prośbę o przypisanie administratorowi.";
+  renderStoreRequests();
+}
+
+function renderStoreRequests() {
+  if (!el.storeRequestList || !user || isAdmin()) return;
+  const stores = state.stores
+    .filter((store) => storeMatches(store, el.storeRequestSearch.value))
+    .sort(compareStores);
+  el.storeRequestList.replaceChildren(...stores.map((store) => {
+    const membership = membershipForStore(store.id);
+    let detail = "Brak prośby o przypisanie";
+    let actions = [["Poproś o przypisanie", () => requestStoreMembership(store)]];
+    if (membership?.status === "pending") {
+      detail = `Oczekuje na decyzję · zgłoszono ${dateTime(membership.requested_at)}`;
+      actions = [];
+    } else if (membership?.status === "approved") {
+      detail = "Przypisanie aktywne";
+      actions = [];
+    } else if (membership?.status === "rejected") {
+      detail = `Odrzucono${membership.reviewed_at ? ` · ${dateTime(membership.reviewed_at)}` : ""}`;
+      actions = [["Ponów prośbę", () => requestStoreMembership(store)]];
+    }
+    return row(store.name, detail, actions);
+  }));
+  el.storeRequestEmpty.classList.toggle("hidden", stores.length > 0);
+}
+
+async function requestStoreMembership(store) {
+  if (!requireOnline()) return;
+  const membership = membershipForStore(store.id);
+  if (membership?.status === "approved") return showToast("Masz już dostęp do tego sklepu.");
+  if (membership?.status === "pending") return showToast("Prośba do tego sklepu już oczekuje na decyzję.");
+  const { data, error } = await db.rpc("request_store_membership", { target_store: store.id });
+  if (error) return report(error, "Nie udało się wysłać prośby.");
+  showToast(data === "approved" ? "Masz już dostęp do tego sklepu." : "Prośba została wysłana do administratora.");
+  await loadData();
 }
 
 function renderWorkspace() {
@@ -574,6 +618,19 @@ function renderAdmin() {
     const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
     return row(worker?.display_name || worker?.email || membership.user_id, storeName(membership.store_id), [["Usuń", () => adminRemoveMembership(membership), true]]);
   }));
+  const pendingMemberships = state.memberships
+    .filter((membership) => membership.status === "pending" && state.profiles.some((profileItem) => profileItem.id === membership.user_id))
+    .sort((a, b) => new Date(a.requested_at) - new Date(b.requested_at));
+  el.adminPendingRequestList.replaceChildren(...pendingMemberships.map((membership) => {
+    const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
+    const workerName = worker?.display_name || worker?.email || membership.user_id;
+    return row(
+      workerName,
+      `${worker?.email || "Brak adresu e-mail"} · ${storeName(membership.store_id)} · zgłoszono ${dateTime(membership.requested_at)}`,
+      [["Zatwierdź", () => adminReviewMembership(membership, true)], ["Odrzuć", () => adminReviewMembership(membership, false), true]],
+    );
+  }));
+  el.adminPendingRequestEmpty.classList.toggle("hidden", pendingMemberships.length > 0);
   el.adminCategoryList.replaceChildren(...[...state.categories].sort((a, b) => a.name.localeCompare(b.name, "pl")).map((category) =>
     row(category.name, category.is_fallback ? "Kategoria chroniona" : "Kategoria globalna", category.is_fallback ? [] : [["Zmień", () => adminRenameCategory(category)], ["Usuń", () => adminDeleteCategory(category), true]])));
   el.sensitiveAdminList.replaceChildren(...state.sensitiveProducts.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((product) =>
@@ -626,6 +683,19 @@ async function adminAddMembership() {
   });
   if (error) return report(error);
   showToast("Pracownik został przypisany do sklepu.");
+  await loadData();
+}
+
+async function adminReviewMembership(membership, approve) {
+  if (!requireOnline()) return;
+  const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
+  const workerName = worker?.display_name || worker?.email || membership.user_id;
+  const action = approve ? "zatwierdzić" : "odrzucić";
+  if (!confirm(`${action[0].toUpperCase()}${action.slice(1)} prośbę ${workerName} o przypisanie do sklepu „${storeName(membership.store_id)}”?`)) return;
+  const rpc = approve ? "approve_store_membership" : "reject_store_membership";
+  const { error } = await db.rpc(rpc, { target_user: membership.user_id, target_store: membership.store_id });
+  if (error) return report(error, `Nie udało się ${approve ? "zatwierdzić" : "odrzucić"} prośby.`);
+  showToast(approve ? "Prośba została zatwierdzona." : "Prośba została odrzucona.");
   await loadData();
 }
 
@@ -1099,7 +1169,7 @@ function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.s
 el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
 el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; resetTransactionForm(); chooseActive(); renderAll(); maybeShowDailyReminder(); };
-el.storeSearch.oninput = renderStores; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
+el.storeSearch.oninput = renderStores; el.storeRequestSearch.oninput = renderStoreRequests; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
 el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 el.shortagesSummaryButton.onclick = openShortagesSummary; el.shortagesSort.onchange = renderShortagesSummary;
