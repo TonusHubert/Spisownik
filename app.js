@@ -201,7 +201,7 @@ async function loadData() {
     const extra = await Promise.all([
       inventoryIds.length ? query("inventory_items", "*", [["in", "inventory_id", inventoryIds]]) : [],
       storeIds.length ? query("store_prices", "*", [["in", "store_id", storeIds]]) : [],
-      isAdmin() ? query("profiles", "*", [["eq", "role", "worker"]]) : [],
+      isAdmin() ? query("profiles", "*") : [],
       storeIds.length ? query("sensitive_product_checks", "*", [["in", "store_id", storeIds], ["eq", "check_date", localDate()]]) : [],
       storeIds.length ? query("suspicious_transactions", "*", [["in", "store_id", storeIds]]) : [],
     ]);
@@ -602,14 +602,13 @@ function renderAdmin() {
   }));
   const selectedEmployee = el.adminEmployeeSelect.value;
   const selectedStore = el.adminMembershipStore.value;
-  const workers = [...state.profiles].sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email, "pl"));
+  const workers = state.profiles.filter((profileItem) => profileItem.role === "worker")
+    .sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email, "pl"));
   el.adminEmployeeSelect.replaceChildren(new Option("Wybierz pracownika", ""), ...workers.map((worker) => new Option(worker.display_name || worker.email, worker.id)));
   el.adminEmployeeSelect.value = workers.some((worker) => worker.id === selectedEmployee) ? selectedEmployee : "";
   el.adminMembershipStore.replaceChildren(new Option("Wybierz sklep", ""), ...[...state.stores].sort(compareStores).map((store) => new Option(store.name, store.id)));
   el.adminMembershipStore.value = state.stores.some((store) => store.id === selectedStore) ? selectedStore : "";
-  const memberships = state.memberships.filter((membership) =>
-    membership.status === "approved" && state.profiles.some((profileItem) => profileItem.id === membership.user_id)
-  ).sort((a, b) => {
+  const memberships = state.memberships.filter((membership) => membership.status === "approved").sort((a, b) => {
     const first = state.profiles.find((profileItem) => profileItem.id === a.user_id);
     const second = state.profiles.find((profileItem) => profileItem.id === b.user_id);
     return (first?.display_name || first?.email || "").localeCompare(second?.display_name || second?.email || "", "pl") || storeName(a.store_id).localeCompare(storeName(b.store_id), "pl");
@@ -619,7 +618,7 @@ function renderAdmin() {
     return row(worker?.display_name || worker?.email || membership.user_id, storeName(membership.store_id), [["Usuń", () => adminRemoveMembership(membership), true]]);
   }));
   const pendingMemberships = state.memberships
-    .filter((membership) => membership.status === "pending" && state.profiles.some((profileItem) => profileItem.id === membership.user_id))
+    .filter((membership) => membership.status === "pending")
     .sort((a, b) => new Date(a.requested_at) - new Date(b.requested_at));
   el.adminPendingRequestList.replaceChildren(...pendingMemberships.map((membership) => {
     const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
