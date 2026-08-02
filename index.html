@@ -7,7 +7,7 @@
     <meta name="description" content="Współdzielony mobilny spis produktów." />
     <title>Spisownik</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=16" />
+    <link rel="stylesheet" href="styles.css?v=17" />
   </head>
   <body>
     <header class="topbar">
@@ -57,9 +57,7 @@
         <section class="empty-state hidden" id="noStoresState">
           <h3 id="noStoresTitle">Nie masz jeszcze dostępu do sklepu</h3>
           <p id="noStoresDescription">Wybierz sklep z listy i wyślij prośbę o przypisanie.</p>
-          <div class="search-field"><span>⌕</span><input id="storeRequestSearch" type="search" placeholder="Szukaj sklepu po numerze lub nazwie" /></div>
-          <div class="session-list" id="storeRequestList"></div>
-          <div class="empty-state hidden" id="storeRequestEmpty"><h3>Brak sklepów</h3><p>Administrator nie dodał jeszcze żadnego sklepu.</p></div>
+          <button class="ghost-button" id="openStoreRequestsButton" type="button">Otwórz Ustawienia → Sklepy</button>
         </section>
 
         <div id="inventoryView">
@@ -149,7 +147,8 @@
     <dialog id="settingsDialog">
       <div class="scanner-header"><div><p class="eyebrow">Konto i konfiguracja</p><h2>Ustawienia</h2></div><button class="icon-button" data-close="settingsDialog">×</button></div>
       <p id="profileSummary"></p>
-      <section class="settings-section"><h3>Sklepy</h3><div class="search-field"><span>⌕</span><input id="storeSettingsSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="storeSettings"></div></section>
+      <section class="settings-section"><h3>Moje sklepy</h3><div class="search-field"><span>⌕</span><input id="storeSettingsSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="storeSettings"></div></section>
+      <section class="settings-section" id="storeRequestsSection"><div class="settings-section-heading"><h3>Dostęp do kolejnych sklepów</h3><span class="settings-count" id="storeRequestsCount">0</span></div><p>Wybierz sklep, aby wysłać lub ponowić prośbę o przypisanie.</p><div class="search-field"><span>⌕</span><input id="storeRequestSearch" type="search" placeholder="Szukaj sklepu po numerze lub nazwie" /></div><div class="session-list" id="storeRequestList"></div><div class="empty-state hidden" id="storeRequestEmpty"><h3>Brak sklepów</h3><p>Administrator nie dodał jeszcze żadnego sklepu.</p></div></section>
       <section class="settings-section"><h3>Aktywne spisy</h3><div class="session-list" id="sessionSettings"></div></section>
       <section class="settings-section"><div class="settings-section-heading"><h3>Archiwum spisów</h3><button class="ghost-button compact" id="shortagesSummaryButton" type="button">Podsumowanie braków</button></div><div class="session-list" id="archiveSettings"></div></section>
       <section class="settings-section"><h3>Dane lokalne</h3><p id="migrationText">Możesz jednorazowo przenieść dane ze starszej wersji zapisane na tym urządzeniu.</p><div class="form-actions"><button class="ghost-button" id="migrateButton">Importuj dane lokalne</button><button class="ghost-button" id="exportBackupButton">Eksport JSON</button></div></section>
@@ -157,30 +156,60 @@
     </dialog>
 
     <dialog id="adminDialog">
-      <div class="scanner-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
-      <section class="settings-section" id="adminRetentionSection">
-        <div class="settings-section-heading"><h3>Archiwa i retencja</h3><button class="ghost-button compact" id="adminRetentionRefreshButton" type="button" data-online-only>Odśwież</button></div>
-        <p id="adminRetentionSummary">Sprawdzanie wygasłych archiwów…</p>
-        <div class="session-list" id="adminRetentionList"></div>
-        <div class="empty-state" id="adminRetentionEmpty"><h3>Brak archiwów</h3><p>Nie ma jeszcze żadnych zarchiwizowanych spisów.</p></div>
-      </section>
-      <section class="settings-section"><h3>Sklepy</h3><div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div><div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div><div class="session-list" id="adminStoreList"></div></section>
-      <section class="settings-section"><h3>Przypisania pracowników</h3><div class="form-actions"><select id="adminEmployeeSelect" aria-label="Pracownik" data-online-only></select><select id="adminMembershipStore" aria-label="Sklep" data-online-only></select><button class="primary-button" id="adminAddMembership" data-online-only>Przypisz</button></div><div class="session-list" id="adminMembershipList"></div></section>
-      <section class="settings-section" id="adminMembershipRequestsSection"><h3>Oczekujące prośby</h3><div class="session-list" id="adminPendingRequestList"></div><div class="empty-state hidden" id="adminPendingRequestEmpty"><h3>Brak oczekujących próśb</h3><p>Nowe prośby pracowników pojawią się tutaj.</p></div></section>
-      <section class="settings-section"><h3>Kategorie</h3><div class="form-actions"><input id="adminCategoryName" maxlength="80" placeholder="Nazwa kategorii" data-online-only /><button class="primary-button" id="adminAddCategory" data-online-only>Dodaj</button></div><div class="session-list" id="adminCategoryList"></div></section>
-      <section class="settings-section">
-        <h3>Produkty wrażliwe</h3>
-        <form class="sensitive-admin-form" id="sensitiveAdminForm">
-          <input id="sensitiveAdminEditingId" type="hidden" />
-          <input id="sensitiveAdminEan" maxlength="32" placeholder="Kod EAN" required data-online-only />
-          <input id="sensitiveAdminName" maxlength="120" placeholder="Nazwa produktu" required data-online-only />
-          <label class="file-field">Zdjęcie (opcjonalnie)<input id="sensitiveAdminImage" type="file" accept="image/jpeg,image/png,image/webp" data-online-only /></label>
-          <label class="remove-image-check hidden" id="sensitiveRemoveImageLabel"><input id="sensitiveRemoveImage" type="checkbox" data-online-only /> Usuń obecne zdjęcie</label>
-          <div class="form-actions"><button class="primary-button" id="sensitiveAdminSubmit" type="submit" data-online-only>Dodaj</button><button class="ghost-button hidden" id="sensitiveAdminCancel" type="button">Anuluj</button></div>
-          <p class="form-error" id="sensitiveAdminError"></p>
-        </form>
-        <div class="session-list" id="sensitiveAdminList"></div>
-      </section>
+      <div class="scanner-header admin-dialog-header"><div><p class="eyebrow">Panel administratora</p><h2>Zarządzanie</h2></div><button class="icon-button" data-close="adminDialog">×</button></div>
+      <nav class="admin-tabs" id="adminTabs" role="tablist" aria-label="Obszary zarządzania">
+        <button class="admin-tab active" id="adminTabStores" type="button" role="tab" aria-selected="true" aria-controls="adminPanelStores" data-admin-tab="stores">Sklepy <span class="admin-tab-count" id="adminStoresCount">0</span></button>
+        <button class="admin-tab" id="adminTabEmployees" type="button" role="tab" aria-selected="false" aria-controls="adminPanelEmployees" data-admin-tab="employees">Pracownicy <span class="admin-tab-count" id="adminEmployeesCount">0</span><span class="admin-tab-alert hidden" id="adminPendingCount">0</span></button>
+        <button class="admin-tab" id="adminTabCategories" type="button" role="tab" aria-selected="false" aria-controls="adminPanelCategories" data-admin-tab="categories">Kategorie <span class="admin-tab-count" id="adminCategoriesCount">0</span></button>
+        <button class="admin-tab" id="adminTabSensitive" type="button" role="tab" aria-selected="false" aria-controls="adminPanelSensitive" data-admin-tab="sensitive">Produkty wrażliwe <span class="admin-tab-count" id="adminSensitiveCount">0</span></button>
+        <button class="admin-tab" id="adminTabAudit" type="button" role="tab" aria-selected="false" aria-controls="adminPanelAudit" data-admin-tab="audit">Audyt i ustawienia <span class="admin-tab-count" id="adminAuditCount">0</span></button>
+      </nav>
+      <div class="admin-panels">
+        <section class="admin-panel" id="adminPanelStores" role="tabpanel" aria-labelledby="adminTabStores" data-admin-panel="stores">
+          <div class="settings-section-heading"><div><p class="eyebrow">Katalog lokalizacji</p><h3>Sklepy</h3></div><span class="settings-count" id="adminStoresSummary">0</span></div>
+          <div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div>
+          <div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div>
+          <div class="session-list" id="adminStoreList"></div>
+        </section>
+        <section class="admin-panel hidden" id="adminPanelEmployees" role="tabpanel" aria-labelledby="adminTabEmployees" data-admin-panel="employees">
+          <div class="settings-section-heading"><div><p class="eyebrow">Dostęp użytkowników</p><h3>Przypisania pracowników</h3></div><span class="settings-count" id="adminMembershipSummary">0</span></div>
+          <div class="form-actions"><select id="adminEmployeeSelect" aria-label="Pracownik" data-online-only></select><select id="adminMembershipStore" aria-label="Sklep" data-online-only></select><button class="primary-button" id="adminAddMembership" data-online-only>Przypisz</button></div>
+          <div class="session-list" id="adminMembershipList"></div>
+          <section class="admin-subsection" id="adminMembershipRequestsSection"><div class="settings-section-heading"><h3>Oczekujące prośby</h3><span class="settings-count" id="adminPendingSummary">0</span></div><div class="session-list" id="adminPendingRequestList"></div><div class="empty-state hidden" id="adminPendingRequestEmpty"><h3>Brak oczekujących próśb</h3><p>Nowe prośby pracowników pojawią się tutaj.</p></div></section>
+        </section>
+        <section class="admin-panel hidden" id="adminPanelCategories" role="tabpanel" aria-labelledby="adminTabCategories" data-admin-panel="categories">
+          <div class="settings-section-heading"><div><p class="eyebrow">Klasyfikacja produktów</p><h3>Kategorie</h3></div><span class="settings-count" id="adminCategoriesSummary">0</span></div>
+          <div class="form-actions"><input id="adminCategoryName" maxlength="80" placeholder="Nazwa kategorii" data-online-only /><button class="primary-button" id="adminAddCategory" data-online-only>Dodaj</button></div>
+          <div class="session-list" id="adminCategoryList"></div>
+        </section>
+        <section class="admin-panel hidden" id="adminPanelSensitive" role="tabpanel" aria-labelledby="adminTabSensitive" data-admin-panel="sensitive">
+          <div class="settings-section-heading"><div><p class="eyebrow">Kontrola dzienna</p><h3>Produkty wrażliwe</h3></div><span class="settings-count" id="adminSensitiveSummary">0</span></div>
+          <form class="sensitive-admin-form" id="sensitiveAdminForm">
+            <input id="sensitiveAdminEditingId" type="hidden" />
+            <input id="sensitiveAdminEan" maxlength="32" placeholder="Kod EAN" required data-online-only />
+            <input id="sensitiveAdminName" maxlength="120" placeholder="Nazwa produktu" required data-online-only />
+            <label class="file-field">Zdjęcie (opcjonalnie)<input id="sensitiveAdminImage" type="file" accept="image/jpeg,image/png,image/webp" data-online-only /></label>
+            <label class="remove-image-check hidden" id="sensitiveRemoveImageLabel"><input id="sensitiveRemoveImage" type="checkbox" data-online-only /> Usuń obecne zdjęcie</label>
+            <div class="form-actions"><button class="primary-button" id="sensitiveAdminSubmit" type="submit" data-online-only>Dodaj</button><button class="ghost-button hidden" id="sensitiveAdminCancel" type="button">Anuluj</button></div>
+            <p class="form-error" id="sensitiveAdminError"></p>
+          </form>
+          <div class="session-list" id="sensitiveAdminList"></div>
+        </section>
+        <section class="admin-panel hidden" id="adminPanelAudit" role="tabpanel" aria-labelledby="adminTabAudit" data-admin-panel="audit">
+          <section class="settings-section admin-subsection" id="adminRetentionSection">
+            <div class="settings-section-heading"><div><p class="eyebrow">Porządek danych</p><h3>Archiwa i retencja</h3></div><button class="ghost-button compact" id="adminRetentionRefreshButton" type="button" data-online-only>Odśwież</button></div>
+            <p id="adminRetentionSummary">Sprawdzanie wygasłych archiwów…</p>
+            <div class="session-list" id="adminRetentionList"></div>
+            <div class="empty-state" id="adminRetentionEmpty"><h3>Brak archiwów</h3><p>Nie ma jeszcze żadnych zarchiwizowanych spisów.</p></div>
+          </section>
+          <section class="admin-subsection" id="adminAuditSection">
+            <div class="settings-section-heading"><div><p class="eyebrow">Historia operacji</p><h3>Usunięte archiwa</h3></div><button class="ghost-button compact" id="adminAuditRefreshButton" type="button" data-online-only>Odśwież</button></div>
+            <p class="settings-note" id="adminAuditStatus">Historia usuniętych archiwów jest dostępna tylko online.</p>
+            <div class="admin-audit-table-wrap"><table class="admin-audit-table"><thead><tr><th>Spis</th><th>Sklep</th><th>Usunięto</th><th>Elementy</th><th>Operator</th></tr></thead><tbody id="adminAuditList"></tbody></table></div>
+            <div class="empty-state hidden" id="adminAuditEmpty"><h3>Brak wpisów audytu</h3><p>Usunięte archiwa pojawią się tutaj.</p></div>
+          </section>
+        </section>
+      </div>
     </dialog>
 
     <dialog class="summary-dialog" id="shortagesSummaryDialog">
@@ -230,6 +259,6 @@
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
     <script src="sync.js?v=2" defer></script>
-    <script src="app.js?v=17" defer></script>
+    <script src="app.js?v=18" defer></script>
   </body>
 </html>

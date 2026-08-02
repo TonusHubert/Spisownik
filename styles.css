@@ -673,6 +673,10 @@ select {
   line-height: 1.5;
 }
 
+.empty-state .ghost-button {
+  margin-top: 16px;
+}
+
 .empty-icon {
   color: var(--primary);
   font-size: 1.8rem;
@@ -690,6 +694,198 @@ dialog {
 dialog::backdrop {
   background: rgba(3, 7, 18, 0.72);
   backdrop-filter: blur(4px);
+}
+
+#adminDialog {
+  width: min(100% - 28px, 1040px);
+  height: min(90dvh, 820px);
+  max-height: min(90dvh, 820px);
+  overflow: hidden;
+}
+
+#adminDialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-dialog-header {
+  flex: 0 0 auto;
+}
+
+.admin-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-muted);
+  scrollbar-width: thin;
+}
+
+.admin-tab {
+  display: inline-flex;
+  min-height: 43px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1 0 auto;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-tab.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: white;
+}
+
+.admin-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-tab-count,
+.admin-tab-alert,
+.settings-count {
+  display: inline-grid;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 5px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.65rem;
+  place-items: center;
+}
+
+.admin-tab.active .admin-tab-count {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.admin-tab-alert {
+  background: #f59e0b;
+  color: #3b2200;
+}
+
+.admin-panels {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.admin-panel {
+  padding-top: 18px;
+}
+
+.admin-panel > .settings-section-heading,
+.admin-panel > .sensitive-admin-form,
+.admin-panel > .session-list {
+  margin-top: 0;
+}
+
+.admin-panel > .form-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.admin-panel > .form-actions input,
+.admin-panel > .form-actions select {
+  min-width: 0;
+  width: 100%;
+}
+
+.admin-panel > .form-actions .primary-button {
+  flex: initial;
+}
+
+#adminPanelEmployees > .form-actions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+#adminPanelCategories > .form-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-subsection {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-subsection:first-child {
+  margin-top: 0;
+}
+
+.settings-count {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 850;
+}
+
+.settings-note {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.admin-audit-table-wrap {
+  max-height: 390px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.admin-audit-table {
+  width: 100%;
+  min-width: 690px;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.admin-audit-table th,
+.admin-audit-table td {
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.admin-audit-table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-audit-table td.numeric,
+.admin-audit-table th.numeric {
+  text-align: right;
+}
+
+.admin-audit-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-audit-table tbody tr:hover {
+  background: var(--surface-muted);
 }
 
 .scanner-header {
@@ -1224,6 +1420,24 @@ dialog::backdrop {
 }
 
 @media (max-width: 640px) {
+
+  #adminDialog {
+    width: calc(100% - 16px);
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 14px;
+  }
+
+  .admin-tab {
+    flex-basis: auto;
+    padding-inline: 11px;
+  }
+
+  .admin-panel > .form-actions,
+  #adminPanelEmployees > .form-actions,
+  #adminPanelCategories > .form-actions {
+    grid-template-columns: 1fr;
+  }
 
   .admin-store-row {
     grid-template-columns: minmax(0, 1fr) 6rem;

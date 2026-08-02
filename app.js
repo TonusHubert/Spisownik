@@ -12,7 +12,7 @@ const el = {
   email: $("#email"), password: $("#password"), configWarning: $("#configWarning"), settingsButton: $("#settingsButton"),
   adminButton: $("#adminButton"), remindersButton: $("#remindersButton"), reminderBadge: $("#reminderBadge"), settingsDialog: $("#settingsDialog"),
   adminDialog: $("#adminDialog"), remindersDialog: $("#remindersDialog"), storeSelect: $("#storeSelect"), storeSearch: $("#storeSearch"), sessionName: $("#sessionName"),
-  savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), noStoresTitle: $("#noStoresTitle"), noStoresDescription: $("#noStoresDescription"), storeRequestSearch: $("#storeRequestSearch"), storeRequestList: $("#storeRequestList"), storeRequestEmpty: $("#storeRequestEmpty"), inventoryView: $("#inventoryView"),
+  savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), noStoresTitle: $("#noStoresTitle"), noStoresDescription: $("#noStoresDescription"), openStoreRequestsButton: $("#openStoreRequestsButton"), storeRequestsSection: $("#storeRequestsSection"), storeRequestsCount: $("#storeRequestsCount"), storeRequestSearch: $("#storeRequestSearch"), storeRequestList: $("#storeRequestList"), storeRequestEmpty: $("#storeRequestEmpty"), inventoryView: $("#inventoryView"),
   itemsStat: $("#itemsStat"), quantityStat: $("#quantityStat"), valueStat: $("#valueStat"), productForm: $("#productForm"),
   editingId: $("#editingId"), ean: $("#ean"), name: $("#name"), category: $("#category"), quantity: $("#quantity"), price: $("#price"),
   formError: $("#formError"), submitButton: $("#submitButton"), cancelEditButton: $("#cancelEditButton"), formTitle: $("#formTitle"),
@@ -22,7 +22,7 @@ const el = {
   reminderList: $("#reminderList"), adminStoreList: $("#adminStoreList"), adminEmployeeSelect: $("#adminEmployeeSelect"),
   adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminPendingRequestList: $("#adminPendingRequestList"), adminPendingRequestEmpty: $("#adminPendingRequestEmpty"), adminCategoryName: $("#adminCategoryName"),
   adminCategoryList: $("#adminCategoryList"), adminRetentionList: $("#adminRetentionList"), adminRetentionSummary: $("#adminRetentionSummary"), adminRetentionEmpty: $("#adminRetentionEmpty"),
-  adminRetentionRefreshButton: $("#adminRetentionRefreshButton"),
+  adminTabs: $("#adminTabs"), adminStoresCount: $("#adminStoresCount"), adminEmployeesCount: $("#adminEmployeesCount"), adminPendingCount: $("#adminPendingCount"), adminCategoriesCount: $("#adminCategoriesCount"), adminSensitiveCount: $("#adminSensitiveCount"), adminAuditCount: $("#adminAuditCount"), adminStoresSummary: $("#adminStoresSummary"), adminMembershipSummary: $("#adminMembershipSummary"), adminPendingSummary: $("#adminPendingSummary"), adminCategoriesSummary: $("#adminCategoriesSummary"), adminSensitiveSummary: $("#adminSensitiveSummary"), adminAuditList: $("#adminAuditList"), adminAuditEmpty: $("#adminAuditEmpty"), adminAuditStatus: $("#adminAuditStatus"), adminAuditRefreshButton: $("#adminAuditRefreshButton"), adminRetentionRefreshButton: $("#adminRetentionRefreshButton"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
@@ -62,6 +62,9 @@ let scannerControls = null;
 let scheduledAuthKey = null;
 let activeView = "inventories";
 let expiredInventories = [];
+let adminActiveTab = "stores";
+let adminRetentionAudit = [];
+let adminAuditError = "";
 
 const syncEngine = window.SpisownikSync.createSyncEngine({
   db,
@@ -177,9 +180,27 @@ async function query(table, select = "*", filters = []) {
   return data || [];
 }
 
+async function loadAdminAudit(silent = false) {
+  if (!isAdmin() || !online()) {
+    if (!isAdmin()) adminRetentionAudit = [];
+    return;
+  }
+  try {
+    adminRetentionAudit = await query("inventory_retention_audit", "*");
+    adminAuditError = "";
+  } catch (error) {
+    adminRetentionAudit = [];
+    adminAuditError = "Nie udało się pobrać historii audytu.";
+    if (!silent) report(error, adminAuditError);
+  }
+  renderAdmin();
+}
+
 async function loadData() {
   if (!user) return;
   if (!online()) {
+    adminRetentionAudit = [];
+    adminAuditError = "";
     const cached = await syncEngine.readSnapshot(user.id);
     if (cached) { state = { ...window.SpisownikSync.emptyState(), ...cached.state }; profile = cached.profile; }
     chooseActive();
@@ -194,7 +215,11 @@ async function loadData() {
     ]);
     profile = profiles[0];
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
-    if (!isAdmin()) expiredInventories = [];
+    if (!isAdmin()) {
+      expiredInventories = [];
+      adminRetentionAudit = [];
+      adminAuditError = "";
+    }
     state = { ...window.SpisownikSync.emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
     const inventoryIds = inventories.map((x) => x.id);
     const storeIds = [...approvedStoreIds()];
@@ -212,6 +237,7 @@ async function loadData() {
     await syncEngine.refreshPendingCount();
     el.savedStatus.textContent = `Zsynchronizowano: ${new Intl.DateTimeFormat("pl-PL", { hour: "2-digit", minute: "2-digit" }).format(new Date())}`;
     renderAll();
+    void loadAdminAudit(true);
     maybeShowDailyReminder();
   } catch (error) {
     const cached = await syncEngine.readSnapshot(user.id);
@@ -248,19 +274,23 @@ function renderStores() {
   el.storeSelect.replaceChildren(...filtered.map((s) => new Option(s.name, s.id)));
   el.storeSelect.value = activeStoreId || "";
   const canRequest = Boolean(user && !isAdmin());
-  el.noStoresState.classList.toggle("hidden", !canRequest);
+  const hasNoApprovedStores = approved.length === 0;
+  el.noStoresState.classList.toggle("hidden", !(canRequest && hasNoApprovedStores));
   el.noStoresTitle.textContent = approved.length ? "Potrzebujesz dostępu do kolejnego sklepu?" : "Nie masz jeszcze dostępu do sklepu";
   el.noStoresDescription.textContent = approved.length
     ? "Wybierz sklep z listy i wyślij prośbę o przypisanie."
-    : "Wybierz sklep z listy i wyślij prośbę o przypisanie administratorowi.";
-  renderStoreRequests();
+    : "Otwórz Ustawienia → Sklepy, wybierz sklep i wyślij prośbę o przypisanie administratorowi.";
 }
 
 function renderStoreRequests() {
-  if (!el.storeRequestList || !user || isAdmin()) return;
+  if (!el.storeRequestList) return;
+  const canRequest = Boolean(user && !isAdmin());
+  el.storeRequestsSection.classList.toggle("hidden", !canRequest);
+  if (!canRequest) return;
   const stores = state.stores
     .filter((store) => storeMatches(store, el.storeRequestSearch.value))
     .sort(compareStores);
+  el.storeRequestsCount.textContent = state.stores.length;
   el.storeRequestList.replaceChildren(...stores.map((store) => {
     const membership = membershipForStore(store.id);
     let detail = "Brak prośby o przypisanie";
@@ -454,6 +484,7 @@ function renderSettings() {
     }
     el.archiveSettings.append(row(inventory.name, `${store?.name || "Nieznany sklep"} · archiwum ${date(inventory.archived_at)} · retencja ${retentionDays} dni · usunięcie od ${date(deadline)} · ${expired ? "wygasł" : "okres jeszcze trwa"} · ${missing ? `${missing} bez flagi` : "flagi kompletne"}`, actions));
   }
+  renderStoreRequests();
   renderShortagesSummary();
 }
 
@@ -572,14 +603,79 @@ function renderReminders() {
   el.noRemindersText.classList.toggle("hidden", reminderCount > 0);
 }
 
+function renderAdminAudit() {
+  if (adminAuditError) {
+    el.adminAuditStatus.textContent = adminAuditError;
+    el.adminAuditList.replaceChildren();
+    el.adminAuditEmpty.classList.add("hidden");
+    return;
+  }
+  const entries = [...adminRetentionAudit].sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
+  el.adminAuditStatus.textContent = entries.length
+    ? `${entries.length} ${entries.length === 1 ? "wpis w historii" : "wpisów w historii"}.`
+    : "Historia usuniętych archiwów jest dostępna tylko online.";
+  el.adminAuditList.replaceChildren(...entries.map((entry) => {
+    const operator = state.profiles.find((profileItem) => profileItem.id === entry.deleted_by);
+    const cells = [
+      entry.inventory_name || "Nieznany spis",
+      storeName(entry.store_id),
+      dateTime(entry.deleted_at),
+      String(entry.item_count ?? 0),
+      operator?.display_name || operator?.email || "Nieznany użytkownik",
+    ];
+    const tr = document.createElement("tr");
+    cells.forEach((value, index) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      if (index === 3) td.className = "numeric";
+      tr.append(td);
+    });
+    return tr;
+  }));
+  el.adminAuditEmpty.classList.toggle("hidden", entries.length > 0);
+}
+
 function renderAdmin() {
   if (!isAdmin()) {
     expiredInventories = [];
+    adminRetentionAudit = [];
     return;
   }
   const archivedInventories = state.inventories
     .filter((inventory) => inventory.status === "archived")
     .sort((a, b) => new Date(a.archived_at) - new Date(b.archived_at));
+  const memberships = state.memberships.filter((membership) => membership.status === "approved").sort((a, b) => {
+    const first = state.profiles.find((profileItem) => profileItem.id === a.user_id);
+    const second = state.profiles.find((profileItem) => profileItem.id === b.user_id);
+    return (first?.display_name || first?.email || "").localeCompare(second?.display_name || second?.email || "", "pl") || storeName(a.store_id).localeCompare(storeName(b.store_id), "pl");
+  });
+  const pendingMemberships = state.memberships
+    .filter((membership) => membership.status === "pending")
+    .sort((a, b) => new Date(a.requested_at) - new Date(b.requested_at));
+
+  el.adminStoresCount.textContent = state.stores.length;
+  el.adminStoresSummary.textContent = state.stores.length;
+  el.adminEmployeesCount.textContent = memberships.length;
+  el.adminMembershipSummary.textContent = memberships.length;
+  el.adminPendingCount.textContent = pendingMemberships.length;
+  el.adminPendingCount.classList.toggle("hidden", pendingMemberships.length === 0);
+  el.adminPendingSummary.textContent = pendingMemberships.length;
+  el.adminCategoriesCount.textContent = state.categories.length;
+  el.adminCategoriesSummary.textContent = state.categories.length;
+  el.adminSensitiveCount.textContent = state.sensitiveProducts.length;
+  el.adminSensitiveSummary.textContent = state.sensitiveProducts.length;
+  el.adminAuditCount.textContent = adminRetentionAudit.length;
+
+  el.adminTabs.querySelectorAll("[data-admin-tab]").forEach((tab) => {
+    const active = tab.dataset.adminTab === adminActiveTab;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  el.adminDialog.querySelectorAll("[data-admin-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.adminPanel !== adminActiveTab);
+  });
+
   el.adminRetentionSummary.textContent = expiredInventories.length
     ? `${expiredInventories.length} ${expiredInventories.length === 1 ? "wygasły spis oczekuje" : "wygasłe spisy oczekują"} na decyzję administratora.`
     : "Brak wygasłych archiwów do usunięcia.";
@@ -608,18 +704,10 @@ function renderAdmin() {
   el.adminEmployeeSelect.value = workers.some((worker) => worker.id === selectedEmployee) ? selectedEmployee : "";
   el.adminMembershipStore.replaceChildren(new Option("Wybierz sklep", ""), ...[...state.stores].sort(compareStores).map((store) => new Option(store.name, store.id)));
   el.adminMembershipStore.value = state.stores.some((store) => store.id === selectedStore) ? selectedStore : "";
-  const memberships = state.memberships.filter((membership) => membership.status === "approved").sort((a, b) => {
-    const first = state.profiles.find((profileItem) => profileItem.id === a.user_id);
-    const second = state.profiles.find((profileItem) => profileItem.id === b.user_id);
-    return (first?.display_name || first?.email || "").localeCompare(second?.display_name || second?.email || "", "pl") || storeName(a.store_id).localeCompare(storeName(b.store_id), "pl");
-  });
   el.adminMembershipList.replaceChildren(...memberships.map((membership) => {
     const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
     return row(worker?.display_name || worker?.email || membership.user_id, storeName(membership.store_id), [["Usuń", () => adminRemoveMembership(membership), true]]);
   }));
-  const pendingMemberships = state.memberships
-    .filter((membership) => membership.status === "pending")
-    .sort((a, b) => new Date(a.requested_at) - new Date(b.requested_at));
   el.adminPendingRequestList.replaceChildren(...pendingMemberships.map((membership) => {
     const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
     const workerName = worker?.display_name || worker?.email || membership.user_id;
@@ -634,6 +722,7 @@ function renderAdmin() {
     row(category.name, category.is_fallback ? "Kategoria chroniona" : "Kategoria globalna", category.is_fallback ? [] : [["Zmień", () => adminRenameCategory(category)], ["Usuń", () => adminDeleteCategory(category), true]])));
   el.sensitiveAdminList.replaceChildren(...state.sensitiveProducts.sort((a, b) => a.name.localeCompare(b.name, "pl")).map((product) =>
     row(product.name, `EAN: ${product.ean}${product.image_path ? " · zdjęcie dodane" : " · bez zdjęcia"}`, [["Edytuj", () => editSensitiveProduct(product)], ["Usuń", () => deleteSensitiveProduct(product), true]])));
+  renderAdminAudit();
 }
 
 async function authSubmit(event) {
@@ -653,7 +742,7 @@ async function onAuth(session) {
     el.savedStatus.textContent = "Pobieranie danych…";
     await loadData();
   } else {
-    profile = null; state = window.SpisownikSync.emptyState(); syncEngine.reset();
+    profile = null; state = window.SpisownikSync.emptyState(); adminRetentionAudit = []; adminAuditError = ""; syncEngine.reset();
   }
 }
 
@@ -1169,6 +1258,20 @@ el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
 el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; resetTransactionForm(); chooseActive(); renderAll(); maybeShowDailyReminder(); };
 el.storeSearch.oninput = renderStores; el.storeRequestSearch.oninput = renderStoreRequests; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
+el.openStoreRequestsButton.onclick = () => { renderSettings(); el.settingsDialog.showModal(); el.storeRequestSearch.focus(); };
+el.adminTabs.querySelectorAll("[data-admin-tab]").forEach((tab) => {
+  tab.onclick = () => { adminActiveTab = tab.dataset.adminTab; renderAdmin(); };
+  tab.onkeydown = (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = [...el.adminTabs.querySelectorAll("[data-admin-tab]")];
+    const current = tabs.indexOf(tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    adminActiveTab = tabs[next].dataset.adminTab;
+    renderAdmin();
+    tabs[next].focus();
+  };
+});
 el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 el.shortagesSummaryButton.onclick = openShortagesSummary; el.shortagesSort.onchange = renderShortagesSummary;
@@ -1192,14 +1295,17 @@ $("#adminAddStore").onclick = async () => {
   const { error } = await db.from("stores").insert({ name, retention_days, created_by: user.id }); if (error) report(error); else { $("#adminStoreName").value = ""; await loadData(); }
 };
 el.settingsButton.onclick = () => { renderAll(); el.settingsDialog.showModal(); }; el.remindersButton.onclick = () => el.remindersDialog.showModal();
-el.adminButton.onclick = () => { renderAll(); el.adminDialog.showModal(); refreshExpiredInventoryCandidates(); };
+el.adminButton.onclick = () => { adminActiveTab = "stores"; renderAll(); el.adminDialog.showModal(); refreshExpiredInventoryCandidates(); void loadAdminAudit(true); };
 el.adminRetentionRefreshButton.onclick = () => refreshExpiredInventoryCandidates();
+el.adminAuditRefreshButton.onclick = () => loadAdminAudit();
 el.syncButton.onclick = () => syncEngine.syncPending();
 $("#logoutButton").onclick = async () => {
   const queued = await syncEngine.readQueue();
   if (queued.length && !confirm(`Masz ${queued.length} niewysłanych zmian. Odrzucić je i wylogować się?`)) return;
   const userId = user.id;
   await syncEngine.clearOfflineData(userId);
+  adminRetentionAudit = [];
+  adminAuditError = "";
   await db.auth.signOut({ scope: "local" });
 }; $("#migrateButton").onclick = migrateLegacy; $("#exportBackupButton").onclick = exportBackup; $("#exportCsvButton").onclick = exportCsv;
 $("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
