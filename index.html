@@ -120,11 +120,19 @@
             <div class="section-heading"><div><p class="eyebrow">Podejrzana transakcja</p><h2 id="transactionFormTitle">Dodaj wpis</h2></div></div>
             <form id="transactionForm" autocomplete="off">
               <input id="transactionEditingId" type="hidden" />
+              <input id="transactionEditingStoreId" type="hidden" />
               <div class="two-columns">
                 <div class="field"><label for="transactionType">Rodzaj numeru</label><select id="transactionType" required data-online-only><option value="receipt">Numer paragonu</option><option value="application">Numer aplikacji</option></select></div>
-                <div class="field"><label for="transactionNumber">Numer</label><input id="transactionNumber" maxlength="80" required data-online-only /></div>
+                <div class="field hidden" id="transactionNumberField"><label for="transactionNumber">Numer aplikacji</label><input id="transactionNumber" maxlength="80" data-online-only /></div>
               </div>
-              <div class="field" id="transactionDateField"><label for="transactionDate">Data paragonu</label><input id="transactionDate" type="date" required data-online-only /><p class="field-note" id="transactionDateNote"></p></div>
+              <section class="transaction-targets hidden" id="transactionApplicationStoresField">
+                <div class="transaction-targets-heading"><div><label>Sklepy do weryfikacji</label><p class="field-note">Zaznacz wszystkie sklepy, w których klient ma ten sam numer aplikacji.</p></div><span class="transaction-target-count" id="transactionSelectedStoresCount">0</span></div>
+                <div class="transaction-store-checkboxes" id="transactionStoreCheckboxes"></div>
+              </section>
+              <section class="transaction-targets" id="transactionReceiptRowsField">
+                <div class="transaction-targets-heading"><div><label>Paragony do weryfikacji</label><p class="field-note">Każdy wiersz może oznaczać inny paragon. Ten sam sklep może wystąpić wiele razy.</p></div><button class="ghost-button compact" id="transactionAddReceiptRow" type="button" data-online-only>Dodaj wiersz</button></div>
+                <div class="transaction-receipt-rows" id="transactionReceiptRows"></div>
+              </section>
               <div class="field"><label for="transactionNote">Notatka (opcjonalnie)</label><textarea id="transactionNote" maxlength="500" rows="3" data-online-only></textarea></div>
               <div class="form-actions"><button class="primary-button" id="transactionSubmitButton" type="submit" data-online-only>Dodaj wpis</button><button class="ghost-button hidden" id="transactionCancelEdit" type="button">Anuluj</button></div>
               <p class="form-error" id="transactionFormError"></p>

@@ -38,8 +38,9 @@ const el = {
   sensitiveAdminImage: $("#sensitiveAdminImage"), sensitiveRemoveImage: $("#sensitiveRemoveImage"), sensitiveRemoveImageLabel: $("#sensitiveRemoveImageLabel"),
   sensitiveAdminSubmit: $("#sensitiveAdminSubmit"), sensitiveAdminCancel: $("#sensitiveAdminCancel"), sensitiveAdminError: $("#sensitiveAdminError"),
   transactionsTabButton: $("#transactionsTabButton"), transactionsView: $("#transactionsView"), transactionForm: $("#transactionForm"),
-  transactionEditingId: $("#transactionEditingId"), transactionType: $("#transactionType"), transactionNumber: $("#transactionNumber"),
-  transactionDateField: $("#transactionDateField"), transactionDate: $("#transactionDate"), transactionDateNote: $("#transactionDateNote"),
+  transactionEditingId: $("#transactionEditingId"), transactionEditingStoreId: $("#transactionEditingStoreId"), transactionType: $("#transactionType"), transactionNumberField: $("#transactionNumberField"), transactionNumber: $("#transactionNumber"),
+  transactionApplicationStoresField: $("#transactionApplicationStoresField"), transactionStoreCheckboxes: $("#transactionStoreCheckboxes"), transactionSelectedStoresCount: $("#transactionSelectedStoresCount"),
+  transactionReceiptRowsField: $("#transactionReceiptRowsField"), transactionReceiptRows: $("#transactionReceiptRows"), transactionAddReceiptRow: $("#transactionAddReceiptRow"),
   transactionNote: $("#transactionNote"), transactionFormTitle: $("#transactionFormTitle"), transactionSubmitButton: $("#transactionSubmitButton"),
   transactionCancelEdit: $("#transactionCancelEdit"), transactionFormError: $("#transactionFormError"),
   transactionEligibleStat: $("#transactionEligibleStat"), transactionPendingStat: $("#transactionPendingStat"),
@@ -638,7 +639,6 @@ function renderTransactions() {
   el.transactionPendingStat.textContent = pending.length;
   el.transactionCheckedStat.textContent = history.length;
   el.transactionThresholdStatus.textContent = eligible.length >= 5 ? `Próg osiągnięty: ${eligible.length}` : `${eligible.length} / 5`;
-  el.transactionDate.max = localDate();
   el.transactionPendingList.replaceChildren(...pending.map((item) => {
     const entry = row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item), [
       ["Sprawdzone", () => checkSuspiciousTransaction(item)],
@@ -1263,67 +1263,155 @@ async function deleteSensitiveProduct(product) {
   await loadData();
 }
 
-function updateTransactionTypeFields() {
-  const receipt = el.transactionType.value === "receipt";
-  el.transactionDateField.classList.toggle("hidden", !receipt);
-  el.transactionDate.required = receipt;
-  if (!receipt) el.transactionDate.value = "";
-  el.transactionDateNote.textContent = receipt && el.transactionDate.value === localDate()
-    ? "Dzisiejszy paragon zacznie być liczony jutro."
-    : "";
+function transactionStores() {
+  return state.stores.filter((store) => approvedStoreIds().has(store.id)).sort(compareStores);
 }
 
-function resetTransactionForm() {
+function selectedTransactionStoreIds() {
+  return [...el.transactionStoreCheckboxes.querySelectorAll("input[data-transaction-store]")]
+    .filter((input) => input.checked)
+    .map((input) => input.value);
+}
+
+function createTransactionStoreCheckbox(store, checked = false, disabled = false) {
+  const label = document.createElement("label");
+  label.className = "transaction-store-option";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.value = store.id;
+  input.dataset.transactionStore = "true";
+  input.checked = checked;
+  input.disabled = disabled;
+  input.addEventListener("change", () => {
+    el.transactionSelectedStoresCount.textContent = selectedTransactionStoreIds().length;
+  });
+  const name = document.createElement("span");
+  name.textContent = store.name;
+  label.append(input, name);
+  return label;
+}
+
+function renderApplicationStoreChoices(selectedIds = null) {
+  const selected = new Set(selectedIds || selectedTransactionStoreIds());
+  if (!selected.size && !el.transactionEditingId.value && activeStoreId) selected.add(activeStoreId);
+  const editing = Boolean(el.transactionEditingId.value);
+  const editingStoreId = el.transactionEditingStoreId.value;
+  const disabled = !online() || editing;
+  el.transactionStoreCheckboxes.replaceChildren(...transactionStores().map((store) =>
+    createTransactionStoreCheckbox(store, selected.has(store.id) && (!editing || store.id === editingStoreId), disabled)));
+  el.transactionSelectedStoresCount.textContent = selectedTransactionStoreIds().length;
+  if (!transactionStores().length) {
+    const empty = document.createElement("p");
+    empty.className = "field-note";
+    empty.textContent = "Brak dostępnych sklepów.";
+    el.transactionStoreCheckboxes.append(empty);
+  }
+}
+
+function readTransactionReceiptRows() {
+  return [...el.transactionReceiptRows.querySelectorAll(".transaction-receipt-row")].map((row) => ({
+    store_id: row.querySelector(".transaction-receipt-store")?.value || "",
+    reference_number: row.querySelector(".transaction-receipt-number")?.value.trim() || "",
+    receipt_date: row.querySelector(".transaction-receipt-date")?.value || null,
+  }));
+}
+
+function createTransactionReceiptRow(values = {}) {
+  const row = document.createElement("div");
+  row.className = "transaction-receipt-row";
+
+  const storeField = document.createElement("div");
+  storeField.className = "field";
+  const storeLabel = document.createElement("label");
+  storeLabel.textContent = "Sklep";
+  const storeSelect = document.createElement("select");
+  storeSelect.className = "transaction-receipt-store";
+  storeSelect.dataset.onlineOnly = "true";
+  storeSelect.replaceChildren(new Option("Wybierz sklep", ""), ...transactionStores().map((store) => new Option(store.name, store.id)));
+  storeSelect.value = values.store_id || activeStoreId || "";
+  storeField.append(storeLabel, storeSelect);
+
+  const numberField = document.createElement("div");
+  numberField.className = "field";
+  const numberLabel = document.createElement("label");
+  numberLabel.textContent = "Numer paragonu";
+  const numberInput = document.createElement("input");
+  numberInput.className = "transaction-receipt-number";
+  numberInput.maxLength = 80;
+  numberInput.dataset.onlineOnly = "true";
+  numberInput.value = values.reference_number || "";
+  numberField.append(numberLabel, numberInput);
+
+  const dateField = document.createElement("div");
+  dateField.className = "field";
+  const dateLabel = document.createElement("label");
+  dateLabel.textContent = "Data paragonu";
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.className = "transaction-receipt-date";
+  dateInput.max = localDate();
+  dateInput.dataset.onlineOnly = "true";
+  dateInput.value = values.receipt_date || "";
+  dateField.append(dateLabel, dateInput);
+
+  const actions = document.createElement("div");
+  actions.className = "transaction-receipt-row-actions";
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.className = "ghost-button compact transaction-remove-row";
+  removeButton.dataset.onlineOnly = "true";
+  removeButton.textContent = "Usuń";
+  removeButton.addEventListener("click", () => {
+    if (el.transactionReceiptRows.children.length === 1) {
+      storeSelect.value = activeStoreId || "";
+      numberInput.value = "";
+      dateInput.value = "";
+      return;
+    }
+    row.remove();
+  });
+  actions.append(removeButton);
+  row.append(storeField, numberField, dateField, actions);
+  const locked = Boolean(el.transactionEditingId.value);
+  storeSelect.disabled = !online() || locked;
+  removeButton.classList.toggle("hidden", locked);
+  removeButton.disabled = !online();
+  return row;
+}
+
+function renderTransactionReceiptRows(rows = [{ store_id: activeStoreId, reference_number: "", receipt_date: "" }]) {
+  el.transactionReceiptRows.replaceChildren(...rows.map(createTransactionReceiptRow));
+}
+
+function updateTransactionTypeFields() {
+  const receipt = el.transactionType.value === "receipt";
+  const editing = Boolean(el.transactionEditingId.value);
+  el.transactionNumberField.classList.toggle("hidden", receipt);
+  el.transactionApplicationStoresField.classList.toggle("hidden", receipt);
+  el.transactionReceiptRowsField.classList.toggle("hidden", !receipt);
+  el.transactionNumber.required = !receipt;
+  el.transactionAddReceiptRow.classList.toggle("hidden", editing);
+  if (!el.transactionReceiptRows.children.length) renderTransactionReceiptRows();
+  [...el.transactionReceiptRows.querySelectorAll(".transaction-receipt-date")].forEach((input) => { input.max = localDate(); });
+  if (!receipt && !el.transactionStoreCheckboxes.children.length) renderApplicationStoreChoices();
+  el.transactionReceiptRows.querySelectorAll(".transaction-receipt-store").forEach((select) => { select.disabled = !online() || editing; });
+  el.transactionReceiptRows.querySelectorAll(".transaction-remove-row").forEach((button) => { button.disabled = !online(); button.classList.toggle("hidden", editing); });
+  el.transactionSelectedStoresCount.textContent = selectedTransactionStoreIds().length;
+}
+
+function resetTransactionForm({ preserveType = false } = {}) {
+  const type = preserveType ? el.transactionType.value : "receipt";
   el.transactionForm.reset();
   el.transactionEditingId.value = "";
-  el.transactionType.value = "receipt";
-  el.transactionDate.max = localDate();
+  el.transactionEditingStoreId.value = "";
+  el.transactionType.value = type;
   el.transactionFormTitle.textContent = "Dodaj wpis";
   el.transactionSubmitButton.textContent = "Dodaj wpis";
   el.transactionCancelEdit.classList.add("hidden");
   el.transactionFormError.textContent = "";
+  renderTransactionReceiptRows();
+  renderApplicationStoreChoices(activeStoreId ? [activeStoreId] : []);
   updateTransactionTypeFields();
-}
-
-function editSuspiciousTransaction(item) {
-  el.transactionEditingId.value = item.id;
-  el.transactionType.value = item.entry_type;
-  el.transactionNumber.value = item.reference_number;
-  el.transactionDate.value = item.receipt_date || "";
-  el.transactionNote.value = item.note || "";
-  el.transactionFormTitle.textContent = "Edytuj wpis";
-  el.transactionSubmitButton.textContent = "Zapisz zmiany";
-  el.transactionCancelEdit.classList.remove("hidden");
-  el.transactionFormError.textContent = "";
-  updateTransactionTypeFields();
-  el.transactionForm.scrollIntoView({ behavior: "smooth", block: "start" });
-  el.transactionNumber.focus();
-}
-
-async function submitSuspiciousTransaction(event) {
-  event.preventDefault();
-  el.transactionFormError.textContent = "";
-  if (!activeStoreId || !requireOnline()) return;
-  const id = el.transactionEditingId.value;
-  const type = el.transactionType.value;
-  const number = el.transactionNumber.value.trim();
-  const receiptDate = type === "receipt" ? el.transactionDate.value : null;
-  const note = el.transactionNote.value.trim() || null;
-  if (!number) return el.transactionFormError.textContent = "Podaj numer paragonu lub aplikacji.";
-  if (type === "receipt" && (!receiptDate || receiptDate > localDate())) return el.transactionFormError.textContent = "Podaj datę paragonu nie późniejszą niż dzisiaj.";
-  const duplicate = activeStoreTransactions().some((item) =>
-    item.id !== id && !item.checked_at && item.entry_type === type
-      && item.reference_number.trim().toLocaleLowerCase("pl") === number.toLocaleLowerCase("pl"));
-  if (duplicate) return el.transactionFormError.textContent = "Taki oczekujący numer już istnieje.";
-  const rpc = id ? "update_suspicious_transaction" : "add_suspicious_transaction";
-  const args = id
-    ? { target_id: id, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note }
-    : { target_store: activeStoreId, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note };
-  const { error } = await db.rpc(rpc, args);
-  if (error) return report(error, "Nie udało się zapisać wpisu.");
-  showToast(id ? "Wpis został zaktualizowany." : "Wpis został dodany.");
-  resetTransactionForm();
-  await loadData();
 }
 
 async function deleteSuspiciousTransaction(item) {
@@ -1335,6 +1423,25 @@ async function deleteSuspiciousTransaction(item) {
   await loadData();
 }
 
+function editSuspiciousTransaction(item) {
+  el.transactionEditingId.value = item.id;
+  el.transactionEditingStoreId.value = item.store_id;
+  el.transactionType.value = item.entry_type;
+  el.transactionNumber.value = item.entry_type === "application" ? item.reference_number : "";
+  el.transactionNote.value = item.note || "";
+  renderTransactionReceiptRows(item.entry_type === "receipt"
+    ? [{ store_id: item.store_id, reference_number: item.reference_number, receipt_date: item.receipt_date || "" }]
+    : [{ store_id: item.store_id, reference_number: "", receipt_date: "" }]);
+  renderApplicationStoreChoices([item.store_id]);
+  el.transactionFormTitle.textContent = "Edytuj wpis";
+  el.transactionSubmitButton.textContent = "Zapisz zmiany";
+  el.transactionCancelEdit.classList.remove("hidden");
+  el.transactionFormError.textContent = "";
+  updateTransactionTypeFields();
+  el.transactionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  (item.entry_type === "application" ? el.transactionNumber : el.transactionReceiptRows.querySelector(".transaction-receipt-number"))?.focus();
+}
+
 async function checkSuspiciousTransaction(item) {
   if (!requireOnline() || !confirm(`Oznaczyć numer „${item.reference_number}” jako sprawdzony?`)) return;
   const { error } = await db.rpc("check_suspicious_transaction", { target_id: item.id });
@@ -1344,6 +1451,58 @@ async function checkSuspiciousTransaction(item) {
   await loadData();
 }
 
+function transactionReferenceKey(storeId, type, referenceNumber) {
+  return `${storeId}|${type}|${referenceNumber.trim().toLocaleLowerCase("pl")}`;
+}
+
+function validateTransactionEntries(type, entries, editingId = "") {
+  if (!entries.length) return "Dodaj co najmniej jeden sklep lub paragon.";
+  const seen = new Set();
+  for (const [index, entry] of entries.entries()) {
+    const prefix = type === "receipt" ? `Wiersz ${index + 1}: ` : "";
+    if (!entry.store_id) return `${prefix}wybierz sklep.`;
+    if (!entry.reference_number) return `${prefix}podaj numer.`;
+    if (type === "receipt" && (!entry.receipt_date || entry.receipt_date > localDate())) return `${prefix}podaj datę paragonu nie późniejszą niż dzisiaj.`;
+    const key = transactionReferenceKey(entry.store_id, type, entry.reference_number);
+    if (seen.has(key)) return `${prefix}ten sam numer został powtórzony w pakiecie.`;
+    seen.add(key);
+    const duplicate = state.suspiciousTransactions.find((item) =>
+      item.id !== editingId && !item.checked_at && transactionReferenceKey(item.store_id, item.entry_type, item.reference_number) === key);
+    if (duplicate) return `${prefix}taki oczekujący numer już istnieje w sklepie „${storeName(entry.store_id)}”.`;
+  }
+  return "";
+}
+
+async function submitSuspiciousTransaction(event) {
+  event.preventDefault();
+  el.transactionFormError.textContent = "";
+  if (!requireOnline()) return;
+  const id = el.transactionEditingId.value;
+  const type = el.transactionType.value;
+  const note = el.transactionNote.value.trim() || null;
+  if (note && note.length > 500) return el.transactionFormError.textContent = "Notatka może mieć maksymalnie 500 znaków.";
+  let entries;
+  if (type === "application") {
+    const number = el.transactionNumber.value.trim();
+    const storeIds = id ? [el.transactionEditingStoreId.value] : selectedTransactionStoreIds();
+    if (!number) return el.transactionFormError.textContent = "Podaj numer aplikacji.";
+    entries = storeIds.map((store_id) => ({ store_id, reference_number: number, receipt_date: null }));
+  } else {
+    entries = readTransactionReceiptRows();
+    if (id && entries.length !== 1) return el.transactionFormError.textContent = "Edycja dotyczy tylko jednego wpisu.";
+  }
+  const validationError = validateTransactionEntries(type, entries, id);
+  if (validationError) return el.transactionFormError.textContent = validationError;
+  const rpc = id ? "update_suspicious_transaction" : "add_suspicious_transactions_batch";
+  const args = id
+    ? { target_id: id, target_type: type, target_number: entries[0].reference_number, target_receipt_date: entries[0].receipt_date, target_note: note }
+    : { target_type: type, target_entries: entries, target_note: note };
+  const { data, error } = await db.rpc(rpc, args);
+  if (error) return report(error, "Nie udało się zapisać wpisu.");
+  showToast(id ? "Wpis został zaktualizowany." : `Dodano ${Number(data) || entries.length} wpisów.`);
+  resetTransactionForm({ preserveType: !id });
+  await loadData();
+}
 async function maybeShowDailyReminder() {
   if (!online() || !activeStoreId) return;
   const today = localDate();
@@ -1445,7 +1604,7 @@ el.transactionsTabButton.onclick = () => { activeView = "transactions"; renderWo
 el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
 el.transactionForm.onsubmit = submitSuspiciousTransaction;
 el.transactionType.onchange = updateTransactionTypeFields;
-el.transactionDate.onchange = updateTransactionTypeFields;
+el.transactionAddReceiptRow.onclick = () => { const rows = readTransactionReceiptRows(); rows.push({ store_id: activeStoreId, reference_number: "", receipt_date: "" }); renderTransactionReceiptRows(rows); updateTransactionTypeFields(); };
 el.transactionCancelEdit.onclick = resetTransactionForm;
 el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
 el.sensitiveAdminCancel.onclick = resetSensitiveAdminForm;

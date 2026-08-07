@@ -1082,6 +1082,86 @@ dialog::backdrop {
   margin-bottom: 14px;
 }
 
+.transaction-targets {
+  margin: 14px 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.transaction-targets-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.transaction-targets-heading > div > label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 800;
+}
+
+.transaction-target-count {
+  min-width: 28px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.transaction-store-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.transaction-store-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.transaction-store-option input {
+  accent-color: var(--primary);
+}
+
+.transaction-receipt-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.transaction-receipt-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(140px, 1fr) minmax(145px, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.transaction-receipt-row-actions {
+  padding-bottom: 1px;
+}
+
+.transaction-receipt-row-actions .ghost-button {
+  white-space: nowrap;
+}
+
 .transaction-list .session-history-row {
   align-items: start;
   padding: 13px;
@@ -1579,6 +1659,14 @@ dialog::backdrop {
   .two-columns {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+
+  .transaction-receipt-row {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-receipt-row-actions {
+    padding-bottom: 0;
   }
 
   .product-card {
