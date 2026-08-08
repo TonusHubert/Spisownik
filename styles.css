@@ -1135,6 +1135,13 @@ dialog::backdrop {
 }
 
 .transaction-store-option input {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 0;
   accent-color: var(--primary);
 }
 
@@ -1526,6 +1533,105 @@ dialog::backdrop {
     padding-top: 10px;
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+
+  #transactionsView,
+  .transaction-panel,
+  .transaction-panel * {
+    min-width: 0;
+  }
+
+  .transaction-stats .stat-card {
+    min-height: 70px;
+    padding: 12px 10px;
+  }
+
+  .transaction-stats .stat-card span {
+    min-height: 2.5em;
+    line-height: 1.25;
+  }
+
+  .transaction-panel .section-heading {
+    align-items: flex-start;
+  }
+
+  .transaction-targets-heading {
+    flex-wrap: wrap;
+  }
+
+  .transaction-targets-heading > div {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .transaction-targets-heading > .ghost-button {
+    min-height: 44px;
+  }
+
+  .transaction-store-checkboxes {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-store-option {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .transaction-receipt-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+    padding: 12px;
+  }
+
+  .transaction-receipt-row > * {
+    min-width: 0;
+  }
+
+  .transaction-receipt-row .field {
+    margin-bottom: 10px;
+  }
+
+  .transaction-receipt-row-actions {
+    padding-top: 8px;
+    padding-bottom: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .transaction-receipt-row-actions .ghost-button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .transaction-panel .form-actions {
+    gap: 10px;
+  }
+
+  .transaction-panel .form-actions > button {
+    min-height: 44px;
+  }
+
+  .transaction-panel .form-actions .primary-button {
+    flex: 1 1 100%;
+  }
+
+  .transaction-list .session-history-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .transaction-list .session-history-row strong,
+  .transaction-list .session-history-row span {
+    overflow-wrap: anywhere;
+  }
+
+  .transaction-list .row-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+  }
+
+  .transaction-list .row-actions button {
+    min-height: 44px;
   }
 }
 
