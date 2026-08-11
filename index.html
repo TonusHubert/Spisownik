@@ -7,7 +7,7 @@
     <meta name="description" content="Współdzielony mobilny spis produktów." />
     <title>Spisownik</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=18" />
+    <link rel="stylesheet" href="styles.css?v=20" />
   </head>
   <body>
     <header class="topbar">
@@ -52,6 +52,7 @@
           <button class="workspace-tab active" id="inventoryTabButton" type="button">Spisy</button>
           <button class="workspace-tab" id="sensitiveTabButton" type="button">Produkty wrażliwe</button>
           <button class="workspace-tab" id="transactionsTabButton" type="button">Transakcje</button>
+          <button class="workspace-tab" id="recidivismTabButton" type="button">Recydywa</button>
         </nav>
 
         <section class="empty-state hidden" id="noStoresState">
@@ -149,6 +150,47 @@
             <div class="empty-state" id="transactionHistoryEmpty"><h3>Brak historii</h3><p>Sprawdzone wpisy pozostaną widoczne bezterminowo.</p></div>
           </section>
         </section>
+
+        <section class="hidden" id="recidivismView">
+          <section class="stats-grid transaction-stats">
+            <article class="stat-card accent"><span>Po terminie</span><strong id="recidivismDueStat">0</strong></article>
+            <article class="stat-card"><span>Aktywne</span><strong id="recidivismActiveStat">0</strong></article>
+            <article class="stat-card"><span>Zakończone</span><strong id="recidivismClosedStat">0</strong></article>
+          </section>
+          <section class="panel transaction-panel">
+            <div class="section-heading"><div><p class="eyebrow">Cykliczna kontrola</p><h2 id="recidivismFormTitle">Dodaj monitoring</h2></div></div>
+            <form id="recidivismForm" autocomplete="off">
+              <input id="recidivismEditingId" type="hidden" />
+              <input id="recidivismEditingStoreId" type="hidden" />
+              <div class="two-columns">
+                <div class="field"><label for="recidivismType">Rodzaj numeru</label><select id="recidivismType" required data-online-only><option value="receipt">Numer paragonu</option><option value="application">Numer aplikacji</option></select></div>
+                <div class="field hidden" id="recidivismNumberField"><label for="recidivismNumber">Numer aplikacji</label><input id="recidivismNumber" maxlength="80" data-online-only /></div>
+              </div>
+              <section class="transaction-targets hidden" id="recidivismApplicationStoresField">
+                <div class="transaction-targets-heading"><div><label>Sklepy objęte monitoringiem</label><p class="field-note">Każdy sklep otrzyma niezależny harmonogram zgodny ze swoją retencją.</p></div><span class="transaction-target-count" id="recidivismSelectedStoresCount">0</span></div>
+                <div class="transaction-store-checkboxes" id="recidivismStoreCheckboxes"></div>
+                <div class="field interval-field"><label for="recidivismApplicationInterval">Okres przypomnień</label><select id="recidivismApplicationInterval" data-online-only><option value="">Domyślny dla każdego sklepu</option><option value="7">7 dni</option><option value="14">14 dni</option><option value="21">21 dni</option><option value="28">28 dni</option><option value="custom">Własny</option></select><input class="hidden" id="recidivismApplicationCustomInterval" type="number" min="1" max="365" placeholder="Liczba dni" aria-label="Własny okres przypomnień" data-online-only /></div>
+              </section>
+              <section class="transaction-targets" id="recidivismReceiptRowsField">
+                <div class="transaction-targets-heading"><div><label>Paragony objęte monitoringiem</label><p class="field-note">Dodaj osobny wiersz dla każdego numeru i sklepu.</p></div><button class="ghost-button compact" id="recidivismAddReceiptRow" type="button" data-online-only>Dodaj wiersz</button></div>
+                <div class="transaction-receipt-rows" id="recidivismReceiptRows"></div>
+              </section>
+              <div class="field"><label for="recidivismNote">Notatka (opcjonalnie)</label><textarea id="recidivismNote" maxlength="500" rows="3" data-online-only></textarea></div>
+              <div class="form-actions"><button class="primary-button" id="recidivismSubmitButton" type="submit" data-online-only>Dodaj monitoring</button><button class="ghost-button hidden" id="recidivismCancelEdit" type="button">Anuluj</button></div>
+              <p class="form-error" id="recidivismFormError"></p>
+            </form>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Bieżący sklep</p><h2>Aktywne monitorowanie</h2></div><strong id="recidivismDueStatus"></strong></div>
+            <div class="session-list transaction-list" id="recidivismActiveList"></div>
+            <div class="empty-state" id="recidivismActiveEmpty"><h3>Brak aktywnych wpisów</h3><p>Dodane numery pojawią się tutaj wraz z terminem kolejnej kontroli.</p></div>
+          </section>
+          <section class="list-section">
+            <div class="section-heading list-heading"><div><p class="eyebrow">Historia sklepu</p><h2>Zakończone monitorowanie</h2></div></div>
+            <div class="session-list transaction-list" id="recidivismClosedList"></div>
+            <div class="empty-state" id="recidivismClosedEmpty"><h3>Brak historii</h3><p>Zakończone wpisy i wykonane kontrole pozostaną widoczne.</p></div>
+          </section>
+        </section>
       </div>
     </main>
 
@@ -175,7 +217,7 @@
       <div class="admin-panels">
         <section class="admin-panel" id="adminPanelStores" role="tabpanel" aria-labelledby="adminTabStores" data-admin-panel="stores">
           <div class="settings-section-heading"><div><p class="eyebrow">Katalog lokalizacji</p><h3>Sklepy</h3></div><span class="settings-count" id="adminStoresSummary">0</span></div>
-          <div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div>
+          <div class="form-actions"><input id="adminStoreName" maxlength="80" placeholder="Nazwa sklepu" data-online-only /><input id="adminRetention" type="number" min="1" max="365" value="14" aria-label="Dni archiwum" data-online-only /><input id="adminRecidivismInterval" type="number" min="1" max="365" value="7" aria-label="Domyślny okres Recydywy" data-online-only /><button class="primary-button" id="adminAddStore" data-online-only>Dodaj</button></div>
           <div class="search-field"><span>⌕</span><input id="adminStoreSearch" type="search" placeholder="Szukaj po numerze lub nazwie" /></div>
           <div class="session-list" id="adminStoreList"></div>
         </section>
@@ -277,7 +319,8 @@
       <div class="scanner-header"><div><p class="eyebrow">Wymagane działanie</p><h2>Przypomnienia</h2></div><button class="icon-button" data-close="remindersDialog">×</button></div>
       <section id="inventoryReminderSection"><h3>Flagi w archiwalnych spisach</h3><p>Te spisy mają pozycje bez nadanych flag.</p><div class="session-list" id="reminderList"></div></section>
       <section class="settings-section" id="transactionReminderSection"><h3>Podejrzane transakcje</h3><p id="transactionReminderText"></p><div class="session-list" id="transactionReminderList"></div></section>
-      <p class="hidden" id="noRemindersText">W wybranym sklepie nie ma obecnie pozycji wymagających działania.</p>
+      <section class="settings-section" id="recidivismReminderSection"><h3>Recydywa — kontrole okresowe</h3><p id="recidivismReminderText"></p><div class="session-list" id="recidivismReminderList"></div></section>
+      <p class="hidden" id="noRemindersText">Nie ma obecnie pozycji wymagających działania.</p>
       <button class="ghost-button wide" data-close="remindersDialog">Przypomnij później</button>
     </dialog>
 
@@ -288,7 +331,7 @@
     <script src="vendor/zxing-browser.min.js" defer></script>
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
-    <script src="sync.js?v=2" defer></script>
-    <script src="app.js?v=18" defer></script>
+    <script src="sync.js?v=3" defer></script>
+    <script src="app.js?v=20" defer></script>
   </body>
 </html>

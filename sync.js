@@ -1,7 +1,7 @@
 function now() { return new Date().toISOString(); }
 
 function emptyState() {
-  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [], suspiciousTransactions: [] };
+  return { profiles: [], stores: [], memberships: [], categories: [], inventories: [], items: [], catalog: [], prices: [], sensitiveProducts: [], sensitiveChecks: [], suspiciousTransactions: [], recidivismEntries: [], recidivismChecks: [] };
 }
 
 function upsertLocal(collection, value) {
