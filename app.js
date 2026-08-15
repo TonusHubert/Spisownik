@@ -8,8 +8,10 @@ const db = configured ? window.supabase.createClient(config.supabaseUrl, config.
 
 const el = {
   authView: $("#authView"), appView: $("#appView"), authForm: $("#authForm"), authTitle: $("#authTitle"), authSubmit: $("#authSubmit"),
-  authModeButton: $("#authModeButton"), authError: $("#authError"), displayNameField: $("#displayNameField"), displayName: $("#displayName"),
-  email: $("#email"), password: $("#password"), configWarning: $("#configWarning"), settingsButton: $("#settingsButton"),
+  authModeButton: $("#authModeButton"), forgotPasswordButton: $("#forgotPasswordButton"), authBackButton: $("#authBackButton"), authError: $("#authError"), authMessage: $("#authMessage"),
+  displayNameField: $("#displayNameField"), displayName: $("#displayName"), emailField: $("#emailField"), email: $("#email"), passwordField: $("#passwordField"), password: $("#password"),
+  newPasswordField: $("#newPasswordField"), newPassword: $("#newPassword"), confirmPasswordField: $("#confirmPasswordField"), confirmPassword: $("#confirmPassword"),
+  configWarning: $("#configWarning"), settingsButton: $("#settingsButton"),
   adminButton: $("#adminButton"), remindersButton: $("#remindersButton"), reminderBadge: $("#reminderBadge"), settingsDialog: $("#settingsDialog"),
   adminDialog: $("#adminDialog"), remindersDialog: $("#remindersDialog"), storeSelect: $("#storeSelect"), storeSearch: $("#storeSearch"), sessionName: $("#sessionName"),
   savedStatus: $("#savedStatus"), syncButton: $("#syncButton"), offlineBanner: $("#offlineBanner"), noStoresState: $("#noStoresState"), noStoresTitle: $("#noStoresTitle"), noStoresDescription: $("#noStoresDescription"), openStoreRequestsButton: $("#openStoreRequestsButton"), storeRequestsSection: $("#storeRequestsSection"), storeRequestsCount: $("#storeRequestsCount"), storeRequestSearch: $("#storeRequestSearch"), storeRequestList: $("#storeRequestList"), storeRequestEmpty: $("#storeRequestEmpty"), inventoryView: $("#inventoryView"),
@@ -38,8 +40,9 @@ const el = {
   sensitiveAdminImage: $("#sensitiveAdminImage"), sensitiveRemoveImage: $("#sensitiveRemoveImage"), sensitiveRemoveImageLabel: $("#sensitiveRemoveImageLabel"),
   sensitiveAdminSubmit: $("#sensitiveAdminSubmit"), sensitiveAdminCancel: $("#sensitiveAdminCancel"), sensitiveAdminError: $("#sensitiveAdminError"),
   transactionsTabButton: $("#transactionsTabButton"), transactionsView: $("#transactionsView"), transactionForm: $("#transactionForm"),
-  transactionEditingId: $("#transactionEditingId"), transactionType: $("#transactionType"), transactionNumber: $("#transactionNumber"),
-  transactionDateField: $("#transactionDateField"), transactionDate: $("#transactionDate"), transactionDateNote: $("#transactionDateNote"),
+  transactionEditingId: $("#transactionEditingId"), transactionEditingStoreId: $("#transactionEditingStoreId"), transactionType: $("#transactionType"), transactionNumber: $("#transactionNumber"), transactionNumberField: $("#transactionNumberField"),
+  transactionApplicationStoresField: $("#transactionApplicationStoresField"), transactionSelectedStoresCount: $("#transactionSelectedStoresCount"), transactionStoreCheckboxes: $("#transactionStoreCheckboxes"),
+  transactionReceiptRowsField: $("#transactionReceiptRowsField"), transactionReceiptRows: $("#transactionReceiptRows"), transactionAddReceiptRow: $("#transactionAddReceiptRow"),
   transactionNote: $("#transactionNote"), transactionFormTitle: $("#transactionFormTitle"), transactionSubmitButton: $("#transactionSubmitButton"),
   transactionCancelEdit: $("#transactionCancelEdit"), transactionFormError: $("#transactionFormError"),
   transactionEligibleStat: $("#transactionEligibleStat"), transactionPendingStat: $("#transactionPendingStat"),
@@ -48,10 +51,18 @@ const el = {
   transactionPendingEmpty: $("#transactionPendingEmpty"), transactionHistoryEmpty: $("#transactionHistoryEmpty"),
   inventoryReminderSection: $("#inventoryReminderSection"), transactionReminderSection: $("#transactionReminderSection"),
   transactionReminderText: $("#transactionReminderText"), transactionReminderList: $("#transactionReminderList"),
+  recidivismTabButton: $("#recidivismTabButton"), recidivismView: $("#recidivismView"), recidivismForm: $("#recidivismForm"),
+  recidivismEditingId: $("#recidivismEditingId"), recidivismEditingStoreId: $("#recidivismEditingStoreId"), recidivismType: $("#recidivismType"), recidivismNumber: $("#recidivismNumber"), recidivismNumberField: $("#recidivismNumberField"),
+  recidivismApplicationStoresField: $("#recidivismApplicationStoresField"), recidivismSelectedStoresCount: $("#recidivismSelectedStoresCount"), recidivismStoreCheckboxes: $("#recidivismStoreCheckboxes"), recidivismApplicationInterval: $("#recidivismApplicationInterval"), recidivismApplicationCustomInterval: $("#recidivismApplicationCustomInterval"),
+  recidivismReceiptRowsField: $("#recidivismReceiptRowsField"), recidivismReceiptRows: $("#recidivismReceiptRows"), recidivismAddReceiptRow: $("#recidivismAddReceiptRow"), recidivismNote: $("#recidivismNote"),
+  recidivismFormTitle: $("#recidivismFormTitle"), recidivismSubmitButton: $("#recidivismSubmitButton"), recidivismCancelEdit: $("#recidivismCancelEdit"), recidivismFormError: $("#recidivismFormError"),
+  recidivismDueStat: $("#recidivismDueStat"), recidivismActiveStat: $("#recidivismActiveStat"), recidivismClosedStat: $("#recidivismClosedStat"), recidivismDueStatus: $("#recidivismDueStatus"), recidivismActiveList: $("#recidivismActiveList"), recidivismClosedList: $("#recidivismClosedList"), recidivismActiveEmpty: $("#recidivismActiveEmpty"), recidivismClosedEmpty: $("#recidivismClosedEmpty"),
+  recidivismReminderSection: $("#recidivismReminderSection"), recidivismReminderText: $("#recidivismReminderText"), recidivismReminderList: $("#recidivismReminderList"),
   noRemindersText: $("#noRemindersText"),
 };
 
-let signupMode = false;
+let authMode = "signin";
+let passwordRecoveryActive = new URLSearchParams(location.hash.slice(1)).get("type") === "recovery";
 let user = null;
 let profile = null;
 let state = window.SpisownikSync.emptyState();
@@ -109,6 +120,18 @@ function missingFlags(inventoryId) { return state.items.filter((x) => x.inventor
 function activeStoreTransactions() { return state.suspiciousTransactions.filter((item) => item.store_id === activeStoreId); }
 function transactionIsEligible(item) { return !item.checked_at && (item.entry_type === "application" || item.receipt_date < localDate()); }
 function eligibleTransactions() { return activeStoreTransactions().filter(transactionIsEligible); }
+function allRecidivismEntries() { return state.recidivismEntries || []; }
+function allRecidivismChecks() { return state.recidivismChecks || []; }
+function activeStoreRecidivism() { return allRecidivismEntries().filter((item) => item.store_id === activeStoreId); }
+function recidivismIsDue(item) { return !item.closed_at && item.next_check_date <= localDate(); }
+function dueRecidivismEntries() { return allRecidivismEntries().filter(recidivismIsDue); }
+function recidivismInterval(item) {
+  const store = state.stores.find((candidate) => candidate.id === item.store_id);
+  return item.interval_override_days || store?.recidivism_default_interval_days || Math.min(7, store?.retention_days || 7);
+}
+function recidivismChecksFor(entryId) {
+  return allRecidivismChecks().filter((check) => check.entry_id === entryId).sort((a, b) => new Date(b.checked_at) - new Date(a.checked_at));
+}
 function money(value) { return new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN" }).format(Number(value) || 0); }
 function date(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short" }).format(new Date(value)); }
 function dateTime(value) { return new Intl.DateTimeFormat("pl-PL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
@@ -229,8 +252,11 @@ async function loadData() {
       isAdmin() ? query("profiles", "*") : [],
       storeIds.length ? query("sensitive_product_checks", "*", [["in", "store_id", storeIds], ["eq", "check_date", localDate()]]) : [],
       storeIds.length ? query("suspicious_transactions", "*", [["in", "store_id", storeIds]]) : [],
+      storeIds.length ? query("recidivism_entries", "*", [["in", "store_id", storeIds]]) : [],
     ]);
-    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3]; state.suspiciousTransactions = extra[4];
+    state.items = extra[0].filter((x) => !x.deleted_at); state.prices = extra[1]; state.profiles = extra[2]; state.sensitiveChecks = extra[3]; state.suspiciousTransactions = extra[4]; state.recidivismEntries = extra[5];
+    const recidivismEntryIds = state.recidivismEntries.map((entry) => entry.id);
+    state.recidivismChecks = recidivismEntryIds.length ? await query("recidivism_checks", "*", [["in", "entry_id", recidivismEntryIds]]) : [];
     SpisownikSync.applyPending(state, await syncEngine.readQueue());
     chooseActive();
     await syncEngine.saveSnapshot();
@@ -259,11 +285,11 @@ function chooseActive() {
 function renderAll() {
   const isOffline = !online();
   el.offlineBanner.classList.toggle("hidden", !isOffline);
-  el.offlineBanner.textContent = "Brak internetu. Zmiany w spisach zostaną zsynchronizowane po odzyskaniu połączenia. Transakcje są dostępne tylko do odczytu.";
+  el.offlineBanner.textContent = "Brak internetu. Zmiany w spisach zostaną zsynchronizowane po odzyskaniu połączenia. Transakcje i Recydywa są dostępne tylko do odczytu.";
   el.profileSummary.textContent = profile ? `${profile.display_name || profile.email} · ${isAdmin() ? "administrator" : "pracownik"}` : "";
   el.adminButton.classList.toggle("hidden", !isAdmin());
-  renderStores(); renderCategories(); renderInventory(); renderSensitiveProducts(); renderTransactions(); renderSettings(); renderReminders(); renderAdmin(); renderWorkspace();
-  document.querySelectorAll("[data-online-only]").forEach((node) => { node.disabled = isOffline; });
+  renderStores(); renderCategories(); renderInventory(); renderSensitiveProducts(); renderTransactions(); renderRecidivism(); renderSettings(); renderReminders(); renderAdmin(); renderWorkspace();
+  document.querySelectorAll("[data-online-only]").forEach((node) => { node.disabled = isOffline || node.dataset.locked === "true"; });
   el.adminButton.disabled = isOffline;
   renderSyncStatus();
 }
@@ -325,12 +351,15 @@ function renderWorkspace() {
   const hasStore = approvedStoreIds().size > 0;
   const sensitive = activeView === "sensitive";
   const transactions = activeView === "transactions";
-  el.inventoryView.classList.toggle("hidden", !hasStore || sensitive || transactions);
+  const recidivism = activeView === "recidivism";
+  el.inventoryView.classList.toggle("hidden", !hasStore || sensitive || transactions || recidivism);
   el.sensitiveView.classList.toggle("hidden", !hasStore || !sensitive);
   el.transactionsView.classList.toggle("hidden", !hasStore || !transactions);
-  el.inventoryTabButton.classList.toggle("active", !sensitive && !transactions);
+  el.recidivismView.classList.toggle("hidden", !hasStore || !recidivism);
+  el.inventoryTabButton.classList.toggle("active", !sensitive && !transactions && !recidivism);
   el.sensitiveTabButton.classList.toggle("active", sensitive);
   el.transactionsTabButton.classList.toggle("active", transactions);
+  el.recidivismTabButton.classList.toggle("active", recidivism);
 }
 
 function renderCategories() {
@@ -466,7 +495,7 @@ function openShortagesSummary() {
 function renderSettings() {
   el.storeSettings.replaceChildren();
   for (const store of state.stores.filter((x) => approvedStoreIds().has(x.id) && storeMatches(x, el.storeSettingsSearch.value)).sort(compareStores)) {
-    el.storeSettings.append(row(store.name, `Dostęp aktywny · archiwum ${store.retention_days} dni`));
+    el.storeSettings.append(row(store.name, `Dostęp aktywny · archiwum ${store.retention_days} dni · Recydywa co ${store.recidivism_default_interval_days || Math.min(7, store.retention_days)} dni`));
   }
   el.sessionSettings.replaceChildren();
   for (const inventory of state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "active").sort((a, b) => new Date(b.created_at) - new Date(a.created_at))) {
@@ -568,7 +597,6 @@ function renderTransactions() {
   el.transactionPendingStat.textContent = pending.length;
   el.transactionCheckedStat.textContent = history.length;
   el.transactionThresholdStatus.textContent = eligible.length >= 5 ? `Próg osiągnięty: ${eligible.length}` : `${eligible.length} / 5`;
-  el.transactionDate.max = localDate();
   el.transactionPendingList.replaceChildren(...pending.map((item) => {
     const entry = row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item), [
       ["Sprawdzone", () => checkSuspiciousTransaction(item)],
@@ -586,10 +614,51 @@ function renderTransactions() {
   updateTransactionTypeFields();
 }
 
+function recidivismDetail(item) {
+  const parts = [];
+  const interval = recidivismInterval(item);
+  if (item.receipt_date) parts.push(`Data paragonu: ${date(`${item.receipt_date}T12:00:00`)}`);
+  parts.push(`Okres: ${interval} dni${item.interval_override_days ? " · wyjątek wpisu" : " · ustawienie sklepu"}`);
+  if (!item.closed_at) parts.push(`Następna kontrola: ${date(`${item.next_check_date}T12:00:00`)}${recidivismIsDue(item) ? " · PO TERMINIE" : ""}`);
+  if (item.note) parts.push(`Notatka: ${item.note}`);
+  parts.push(`Dodał(a): ${item.created_by_name} · ${dateTime(item.created_at)}`);
+  for (const check of recidivismChecksFor(item.id)) {
+    parts.push(`Kontrola ${dateTime(check.checked_at)} · okres ${date(`${check.period_from}T12:00:00`)}–${date(`${check.period_to}T12:00:00`)} · ${check.checked_by_name}${check.gap_days ? ` · luka ${check.gap_days} dni` : ""}`);
+  }
+  if (item.closed_at) parts.push(`Zakończył(a): ${item.closed_by_name} · ${dateTime(item.closed_at)}`);
+  return parts.join("\n");
+}
+
+function renderRecidivism() {
+  const all = activeStoreRecidivism();
+  const active = all.filter((item) => !item.closed_at).sort((a, b) => Number(recidivismIsDue(b)) - Number(recidivismIsDue(a)) || String(a.next_check_date).localeCompare(String(b.next_check_date)));
+  const closed = all.filter((item) => item.closed_at).sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+  const due = active.filter(recidivismIsDue);
+  el.recidivismDueStat.textContent = due.length; el.recidivismActiveStat.textContent = active.length; el.recidivismClosedStat.textContent = closed.length;
+  el.recidivismDueStatus.textContent = due.length ? `${due.length} po terminie` : "Terminy aktualne";
+  el.recidivismActiveList.replaceChildren(...active.map((item) => {
+    const actions = [];
+    if (recidivismIsDue(item)) actions.push(["Potwierdź kontrolę", () => checkRecidivismEntry(item)]);
+    actions.push(["Edytuj", () => editRecidivismEntry(item)], ["Zakończ", () => closeRecidivismEntry(item)]);
+    if (isAdmin()) actions.push(["Trwale usuń", () => deleteRecidivismEntry(item), true]);
+    const entry = row(`${transactionTypeLabel(item)} · ${item.reference_number}`, recidivismDetail(item), actions);
+    entry.querySelectorAll("button").forEach((button) => { button.disabled = !online(); });
+    entry.classList.toggle("transaction-due", recidivismIsDue(item)); return entry;
+  }));
+  el.recidivismClosedList.replaceChildren(...closed.map((item) => {
+    const actions = isAdmin() ? [["Trwale usuń", () => deleteRecidivismEntry(item), true]] : [];
+    const entry = row(`${transactionTypeLabel(item)} · ${item.reference_number}`, recidivismDetail(item), actions);
+    entry.querySelectorAll("button").forEach((button) => { button.disabled = !online(); }); return entry;
+  }));
+  el.recidivismActiveEmpty.classList.toggle("hidden", active.length > 0); el.recidivismClosedEmpty.classList.toggle("hidden", closed.length > 0);
+  updateRecidivismTypeFields();
+}
+
 function renderReminders() {
   const awaiting = state.inventories.filter((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
   const transactions = eligibleTransactions();
-  const reminderCount = awaiting.length + transactions.length;
+  const recidivism = dueRecidivismEntries().sort((a, b) => String(a.next_check_date).localeCompare(String(b.next_check_date)) || storeName(a.store_id).localeCompare(storeName(b.store_id), "pl"));
+  const reminderCount = awaiting.length + transactions.length + recidivism.length;
   el.reminderBadge.textContent = reminderCount;
   el.remindersButton.classList.toggle("has-badge", reminderCount > 0);
   el.reminderList.replaceChildren(...awaiting.map((x) => row(x.name, `${missingFlags(x.id)} pozycji bez flagi · archiwum do ${date(archiveDeadline(x))}`, [["Otwórz", () => { openInventory(x.id); el.remindersDialog.close(); }]])));
@@ -598,8 +667,14 @@ function renderReminders() {
     row(`${transactionTypeLabel(item)} · ${item.reference_number}`, transactionDetail(item), [["Otwórz", () => {
       activeView = "transactions"; renderAll(); el.remindersDialog.close();
     }]])));
+  el.recidivismReminderText.textContent = `${recidivism.length} ${recidivism.length === 1 ? "monitoring wymaga" : "monitoringi wymagają"} kontroli we wszystkich dostępnych sklepach.`;
+  el.recidivismReminderList.replaceChildren(...recidivism.map((item) =>
+    row(`${storeName(item.store_id)} · ${transactionTypeLabel(item)} · ${item.reference_number}`, `Termin: ${date(`${item.next_check_date}T12:00:00`)} · okres ${recidivismInterval(item)} dni`, [["Otwórz", () => {
+      activeStoreId = item.store_id; chooseActive(); activeView = "recidivism"; renderAll(); el.remindersDialog.close();
+    }]])));
   el.inventoryReminderSection.classList.toggle("hidden", awaiting.length === 0);
   el.transactionReminderSection.classList.toggle("hidden", transactions.length === 0);
+  el.recidivismReminderSection.classList.toggle("hidden", recidivism.length === 0);
   el.noRemindersText.classList.toggle("hidden", reminderCount > 0);
 }
 
@@ -690,8 +765,8 @@ function renderAdmin() {
   el.adminRetentionEmpty.classList.toggle("hidden", archivedInventories.length > 0);
   el.adminStoreList.replaceChildren(...state.stores.filter((x) => storeMatches(x, el.adminStoreSearch.value)).sort(compareStores).map((store) => {
     const wrapper = document.createElement("form"); wrapper.className = "admin-store-row";
-    wrapper.innerHTML = `<input name="name" maxlength="80" required /><input name="retention" type="number" min="1" max="365" required aria-label="Dni archiwum" /><button class="ghost-button compact" type="submit">Zapisz</button><button class="danger-button compact" type="button">Usuń</button>`;
-    wrapper.elements.name.value = store.name; wrapper.elements.retention.value = store.retention_days;
+    wrapper.innerHTML = `<input name="name" maxlength="80" required /><input name="retention" type="number" min="1" max="365" required aria-label="Dni archiwum" /><input name="recidivismInterval" type="number" min="1" max="365" required aria-label="Domyślny okres Recydywy" /><button class="ghost-button compact" type="submit">Zapisz</button><button class="danger-button compact" type="button">Usuń</button>`;
+    wrapper.elements.name.value = store.name; wrapper.elements.retention.value = store.retention_days; wrapper.elements.recidivismInterval.value = store.recidivism_default_interval_days || Math.min(7, store.retention_days);
     wrapper.onsubmit = (event) => adminEditStore(event, store);
     wrapper.querySelector(".danger-button").onclick = () => adminDeleteStore(store);
     return wrapper;
@@ -725,13 +800,103 @@ function renderAdmin() {
   renderAdminAudit();
 }
 
+function passwordRecoveryRedirectUrl() {
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function clearPasswordRecoveryUrl() {
+  if (location.hash || location.search) history.replaceState(null, document.title, location.pathname || "/");
+}
+
+function setAuthMode(mode, notice = "") {
+  authMode = mode;
+  const signup = mode === "signup";
+  const requestReset = mode === "request-reset";
+  const setPassword = mode === "set-password";
+  el.displayNameField.classList.toggle("hidden", !signup);
+  el.emailField.classList.toggle("hidden", setPassword);
+  el.passwordField.classList.toggle("hidden", requestReset || setPassword);
+  el.newPasswordField.classList.toggle("hidden", !setPassword);
+  el.confirmPasswordField.classList.toggle("hidden", !setPassword);
+  el.displayName.required = signup;
+  el.email.required = !setPassword;
+  el.password.required = mode === "signin" || signup;
+  el.newPassword.required = setPassword;
+  el.confirmPassword.required = setPassword;
+  el.password.autocomplete = signup ? "new-password" : "current-password";
+  el.authTitle.textContent = signup ? "Załóż konto" : requestReset ? "Odzyskaj hasło" : setPassword ? "Ustaw nowe hasło" : "Zaloguj się";
+  el.authSubmit.textContent = signup ? "Zarejestruj się" : requestReset ? "Wyślij link" : setPassword ? "Ustaw nowe hasło" : "Zaloguj się";
+  el.authModeButton.textContent = signup ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się";
+  el.authModeButton.classList.toggle("hidden", requestReset || setPassword);
+  el.forgotPasswordButton.classList.toggle("hidden", mode !== "signin");
+  el.authBackButton.classList.toggle("hidden", !requestReset && !setPassword);
+  el.authMessage.textContent = notice;
+  el.authError.textContent = "";
+}
+
+function showPasswordRecovery(session) {
+  passwordRecoveryActive = true;
+  user = null;
+  el.authView.classList.remove("hidden");
+  el.appView.classList.add("hidden");
+  el.settingsButton.classList.add("hidden");
+  el.remindersButton.classList.add("hidden");
+  el.adminButton.classList.add("hidden");
+  if (session?.user?.email) el.email.value = session.user.email;
+  setAuthMode("set-password");
+  el.newPassword.focus();
+}
+
 async function authSubmit(event) {
-  event.preventDefault(); el.authError.textContent = "";
+  event.preventDefault(); el.authError.textContent = ""; el.authMessage.textContent = "";
   if (!configured) return el.authError.textContent = "Brak konfiguracji Supabase.";
+  if (authMode === "request-reset") {
+    const email = el.email.value.trim();
+    const result = await db.auth.resetPasswordForEmail(email, { redirectTo: passwordRecoveryRedirectUrl() });
+    if (result.error) return el.authError.textContent = result.error.message;
+    el.authMessage.textContent = "Jeśli konto z tym adresem istnieje, wysłaliśmy wiadomość z linkiem do zmiany hasła.";
+    return;
+  }
+  if (authMode === "set-password") {
+    const newPassword = el.newPassword.value;
+    if (newPassword !== el.confirmPassword.value) return el.authError.textContent = "Podane hasła nie są takie same.";
+    const result = await db.auth.updateUser({ password: newPassword });
+    if (result.error) return el.authError.textContent = result.error.message;
+    const signedOut = await db.auth.signOut({ scope: "local" });
+    if (signedOut.error) return el.authError.textContent = "Hasło zostało zmienione, ale nie udało się wylogować. Spróbuj ponownie.";
+    passwordRecoveryActive = false;
+    clearPasswordRecoveryUrl();
+    await onAuth(null);
+    el.password.value = ""; el.newPassword.value = ""; el.confirmPassword.value = "";
+    setAuthMode("signin", "Hasło zostało zmienione. Zaloguj się nowym hasłem.");
+    return;
+  }
   const credentials = { email: el.email.value.trim(), password: el.password.value };
-  const result = signupMode ? await db.auth.signUp({ ...credentials, options: { data: { display_name: el.displayName.value.trim() } } }) : await db.auth.signInWithPassword(credentials);
+  const signup = authMode === "signup";
+  const result = signup ? await db.auth.signUp({ ...credentials, options: { data: { display_name: el.displayName.value.trim() } } }) : await db.auth.signInWithPassword(credentials);
   if (result.error) el.authError.textContent = result.error.message;
-  else if (signupMode && !result.data.session) showToast("Sprawdź pocztę i potwierdź rejestrację.");
+  else if (signup && !result.data.session) showToast("Sprawdź pocztę i potwierdź rejestrację.");
+}
+
+async function leavePasswordRecovery() {
+  if (passwordRecoveryActive) {
+    passwordRecoveryActive = false;
+    clearPasswordRecoveryUrl();
+    await db?.auth.signOut({ scope: "local" });
+    await onAuth(null);
+  }
+  el.newPassword.value = ""; el.confirmPassword.value = "";
+  setAuthMode("signin");
+  el.email.focus();
+}
+
+function handleAuthStateChange(event, session) {
+  if (event === "PASSWORD_RECOVERY") return showPasswordRecovery(session);
+  if (passwordRecoveryActive && session) return;
+  scheduleAuth(session);
 }
 
 async function onAuth(session) {
@@ -750,7 +915,10 @@ function scheduleAuth(session) {
   const key = session?.access_token || "signed-out";
   if (key === scheduledAuthKey) return;
   scheduledAuthKey = key;
-  setTimeout(() => onAuth(session).catch((error) => report(error, "Nie udało się uruchomić aplikacji.")), 0);
+  setTimeout(() => {
+    if (passwordRecoveryActive) return;
+    onAuth(session).catch((error) => report(error, "Nie udało się uruchomić aplikacji."));
+  }, 0);
 }
 
 async function refreshCategoryData() {
@@ -831,9 +999,10 @@ async function adminEditStore(event, store) {
   event.preventDefault(); if (!requireOnline()) return;
   const name = event.currentTarget.elements.name.value.trim();
   const retention = Number(event.currentTarget.elements.retention.value);
-  if (!name || !Number.isInteger(retention) || retention < 1 || retention > 365) return showToast("Podaj nazwę oraz od 1 do 365 dni.");
+  const recidivismInterval = Number(event.currentTarget.elements.recidivismInterval.value);
+  if (!name || !Number.isInteger(retention) || retention < 1 || retention > 365 || !Number.isInteger(recidivismInterval) || recidivismInterval < 1 || recidivismInterval > retention) return showToast("Podaj nazwę, retencję 1–365 dni i okres Recydywy mieszczący się w retencji.");
   if (state.stores.some((item) => item.id !== store.id && item.name.toLocaleLowerCase("pl") === name.toLocaleLowerCase("pl"))) return showToast("Sklep o tej nazwie już istnieje.");
-  const { error } = await db.from("stores").update({ name, retention_days: retention }).eq("id", store.id); if (error) return report(error); await loadData();
+  const { error } = await db.rpc("update_store_settings", { target_store: store.id, target_name: name, target_retention_days: retention, target_recidivism_default_interval_days: recidivismInterval }); if (error) return report(error); await loadData();
 }
 async function adminDeleteStore(store) { if (!requireOnline() || !confirm(`Trwale usunąć sklep „${store.name}” i wszystkie jego dane?`)) return; const { error } = await db.from("stores").delete().eq("id", store.id); if (error) return report(error); await loadData(); }
 
@@ -1117,67 +1286,262 @@ async function deleteSensitiveProduct(product) {
   await loadData();
 }
 
+function approvedStoresSorted() {
+  const allowed = approvedStoreIds();
+  return state.stores.filter((store) => allowed.has(store.id)).sort(compareStores);
+}
+
+function referenceField(labelText, control) {
+  const field = document.createElement("div");
+  field.className = "field";
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  field.append(label, control);
+  return field;
+}
+
+function intervalControl(value = null) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "interval-control";
+  const select = document.createElement("select");
+  select.className = "reference-interval";
+  select.setAttribute("data-online-only", "");
+  select.append(
+    new Option("Domyślny sklepu", ""),
+    new Option("7 dni", "7"),
+    new Option("14 dni", "14"),
+    new Option("21 dni", "21"),
+    new Option("28 dni", "28"),
+    new Option("Własny", "custom"),
+  );
+  const custom = document.createElement("input");
+  custom.className = "reference-custom-interval hidden";
+  custom.type = "number"; custom.min = "1"; custom.max = "365"; custom.placeholder = "Dni";
+  custom.setAttribute("aria-label", "Własny okres przypomnień"); custom.setAttribute("data-online-only", "");
+  select.disabled = !online(); custom.disabled = !online();
+  if (value != null) {
+    if ([7, 14, 21, 28].includes(Number(value))) select.value = String(value);
+    else { select.value = "custom"; custom.value = String(value); custom.classList.remove("hidden"); }
+  }
+  select.onchange = () => custom.classList.toggle("hidden", select.value !== "custom");
+  wrapper.append(select, custom);
+  return wrapper;
+}
+
+function readInterval(select, custom) {
+  if (!select.value) return null;
+  return Number(select.value === "custom" ? custom.value : select.value);
+}
+
+function createReferenceReceiptRow(container, values = {}, withInterval = false, locked = false) {
+  const rowNode = document.createElement("div");
+  rowNode.className = `transaction-receipt-row${withInterval ? " recidivism-receipt-row" : ""}`;
+  const storeSelect = document.createElement("select"); storeSelect.className = "reference-store"; storeSelect.required = true; storeSelect.setAttribute("data-online-only", "");
+  storeSelect.append(new Option("Wybierz sklep", ""), ...approvedStoresSorted().map((store) => new Option(store.name, store.id)));
+  storeSelect.value = values.store_id || activeStoreId || ""; storeSelect.disabled = locked || !online(); if (locked) storeSelect.dataset.locked = "true";
+  const numberInput = document.createElement("input"); numberInput.className = "reference-number"; numberInput.maxLength = 80; numberInput.required = true; numberInput.value = values.reference_number || ""; numberInput.setAttribute("data-online-only", ""); numberInput.disabled = !online();
+  const dateInput = document.createElement("input"); dateInput.className = "reference-date"; dateInput.type = "date"; dateInput.required = true; dateInput.max = localDate(); dateInput.value = values.receipt_date || ""; dateInput.setAttribute("data-online-only", ""); dateInput.disabled = !online();
+  rowNode.append(referenceField("Sklep", storeSelect), referenceField("Numer paragonu", numberInput), referenceField("Data paragonu", dateInput));
+  if (withInterval) rowNode.append(referenceField("Okres przypomnień", intervalControl(values.interval_override_days)));
+  const actions = document.createElement("div"); actions.className = "transaction-receipt-row-actions";
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "ghost-button compact"; remove.textContent = "Usuń wiersz"; remove.setAttribute("data-online-only", "");
+  remove.disabled = !online();
+  remove.onclick = () => { rowNode.remove(); if (!container.children.length) createReferenceReceiptRow(container, {}, withInterval); };
+  remove.classList.toggle("hidden", locked);
+  actions.append(remove); rowNode.append(actions); container.append(rowNode); return rowNode;
+}
+
+function renderReferenceStoreCheckboxes(container, counter, lockedStoreId = "") {
+  const selected = new Set([...container.querySelectorAll("input:checked")].map((input) => input.value));
+  if (!selected.size && activeStoreId) selected.add(activeStoreId);
+  if (lockedStoreId) { selected.clear(); selected.add(lockedStoreId); }
+  container.replaceChildren(...approvedStoresSorted().map((store) => {
+    const label = document.createElement("label"); label.className = "transaction-store-option";
+    const input = document.createElement("input"); input.type = "checkbox"; input.value = store.id; input.checked = selected.has(store.id); input.disabled = Boolean(lockedStoreId) || !online(); if (lockedStoreId) input.dataset.locked = "true"; input.setAttribute("data-online-only", "");
+    input.onchange = () => { counter.textContent = container.querySelectorAll("input:checked").length; };
+    label.append(input, document.createTextNode(store.name)); return label;
+  }));
+  counter.textContent = container.querySelectorAll("input:checked").length;
+}
+
+function selectedReferenceStores(container) {
+  return [...container.querySelectorAll("input:checked")].map((input) => input.value);
+}
+
 function updateTransactionTypeFields() {
-  const receipt = el.transactionType.value === "receipt";
-  el.transactionDateField.classList.toggle("hidden", !receipt);
-  el.transactionDate.required = receipt;
-  if (!receipt) el.transactionDate.value = "";
-  el.transactionDateNote.textContent = receipt && el.transactionDate.value === localDate()
-    ? "Dzisiejszy paragon zacznie być liczony jutro."
-    : "";
+  const application = el.transactionType.value === "application";
+  el.transactionNumberField.classList.toggle("hidden", !application);
+  el.transactionNumber.required = application;
+  el.transactionApplicationStoresField.classList.toggle("hidden", !application);
+  el.transactionReceiptRowsField.classList.toggle("hidden", application);
+  if (application) renderReferenceStoreCheckboxes(el.transactionStoreCheckboxes, el.transactionSelectedStoresCount, el.transactionEditingStoreId.value);
+  else if (!el.transactionReceiptRows.children.length) createReferenceReceiptRow(el.transactionReceiptRows, { store_id: el.transactionEditingStoreId.value || activeStoreId }, false, Boolean(el.transactionEditingId.value));
 }
 
 function resetTransactionForm() {
-  el.transactionForm.reset();
-  el.transactionEditingId.value = "";
-  el.transactionType.value = "receipt";
-  el.transactionDate.max = localDate();
-  el.transactionFormTitle.textContent = "Dodaj wpis";
-  el.transactionSubmitButton.textContent = "Dodaj wpis";
-  el.transactionCancelEdit.classList.add("hidden");
-  el.transactionFormError.textContent = "";
+  el.transactionForm.reset(); el.transactionEditingId.value = ""; el.transactionEditingStoreId.value = ""; el.transactionType.value = "receipt";
+  el.transactionStoreCheckboxes.replaceChildren(); el.transactionReceiptRows.replaceChildren();
+  el.transactionFormTitle.textContent = "Dodaj wpis"; el.transactionSubmitButton.textContent = "Dodaj wpis"; el.transactionCancelEdit.classList.add("hidden"); el.transactionFormError.textContent = "";
   updateTransactionTypeFields();
 }
 
 function editSuspiciousTransaction(item) {
-  el.transactionEditingId.value = item.id;
-  el.transactionType.value = item.entry_type;
-  el.transactionNumber.value = item.reference_number;
-  el.transactionDate.value = item.receipt_date || "";
-  el.transactionNote.value = item.note || "";
-  el.transactionFormTitle.textContent = "Edytuj wpis";
-  el.transactionSubmitButton.textContent = "Zapisz zmiany";
-  el.transactionCancelEdit.classList.remove("hidden");
-  el.transactionFormError.textContent = "";
-  updateTransactionTypeFields();
-  el.transactionForm.scrollIntoView({ behavior: "smooth", block: "start" });
-  el.transactionNumber.focus();
+  resetTransactionForm();
+  el.transactionEditingId.value = item.id; el.transactionEditingStoreId.value = item.store_id; el.transactionType.value = item.entry_type;
+  el.transactionNumber.value = item.entry_type === "application" ? item.reference_number : ""; el.transactionNote.value = item.note || "";
+  el.transactionReceiptRows.replaceChildren();
+  if (item.entry_type === "receipt") createReferenceReceiptRow(el.transactionReceiptRows, item, false, true);
+  el.transactionFormTitle.textContent = "Edytuj wpis"; el.transactionSubmitButton.textContent = "Zapisz zmiany"; el.transactionCancelEdit.classList.remove("hidden"); el.transactionFormError.textContent = "";
+  updateTransactionTypeFields(); el.transactionForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  (item.entry_type === "application" ? el.transactionNumber : el.transactionReceiptRows.querySelector(".reference-number"))?.focus();
+}
+
+function transactionEntriesFromForm() {
+  const note = el.transactionNote.value.trim() || null;
+  if (el.transactionType.value === "application") {
+    const number = el.transactionNumber.value.trim();
+    return selectedReferenceStores(el.transactionStoreCheckboxes).map((storeId) => ({ store_id: storeId, entry_type: "application", reference_number: number, receipt_date: null, note }));
+  }
+  return [...el.transactionReceiptRows.children].map((rowNode) => ({
+    store_id: rowNode.querySelector(".reference-store").value,
+    entry_type: "receipt",
+    reference_number: rowNode.querySelector(".reference-number").value.trim(),
+    receipt_date: rowNode.querySelector(".reference-date").value,
+    note,
+  }));
+}
+
+function validateTransactionEntries(entries, editingId = "") {
+  if (!entries.length) return "Wybierz co najmniej jeden sklep lub dodaj paragon.";
+  const batchKeys = new Set();
+  for (const entry of entries) {
+    if (!entry.store_id || !entry.reference_number) return "Uzupełnij sklep i numer w każdym wpisie.";
+    if (entry.entry_type === "receipt" && (!entry.receipt_date || entry.receipt_date > localDate())) return "Podaj datę każdego paragonu nie późniejszą niż dzisiaj.";
+    const key = `${entry.store_id}|${entry.entry_type}|${entry.reference_number.toLocaleLowerCase("pl")}`;
+    if (batchKeys.has(key)) return "Ta sama pozycja występuje w formularzu więcej niż raz.";
+    batchKeys.add(key);
+    if (state.suspiciousTransactions.some((item) => item.id !== editingId && !item.checked_at && `${item.store_id}|${item.entry_type}|${item.reference_number.trim().toLocaleLowerCase("pl")}` === key)) return "Taki oczekujący numer już istnieje w jednym z wybranych sklepów.";
+  }
+  return "";
 }
 
 async function submitSuspiciousTransaction(event) {
-  event.preventDefault();
-  el.transactionFormError.textContent = "";
-  if (!activeStoreId || !requireOnline()) return;
-  const id = el.transactionEditingId.value;
-  const type = el.transactionType.value;
-  const number = el.transactionNumber.value.trim();
-  const receiptDate = type === "receipt" ? el.transactionDate.value : null;
-  const note = el.transactionNote.value.trim() || null;
-  if (!number) return el.transactionFormError.textContent = "Podaj numer paragonu lub aplikacji.";
-  if (type === "receipt" && (!receiptDate || receiptDate > localDate())) return el.transactionFormError.textContent = "Podaj datę paragonu nie późniejszą niż dzisiaj.";
-  const duplicate = activeStoreTransactions().some((item) =>
-    item.id !== id && !item.checked_at && item.entry_type === type
-      && item.reference_number.trim().toLocaleLowerCase("pl") === number.toLocaleLowerCase("pl"));
-  if (duplicate) return el.transactionFormError.textContent = "Taki oczekujący numer już istnieje.";
-  const rpc = id ? "update_suspicious_transaction" : "add_suspicious_transaction";
-  const args = id
-    ? { target_id: id, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note }
-    : { target_store: activeStoreId, target_type: type, target_number: number, target_receipt_date: receiptDate, target_note: note };
-  const { error } = await db.rpc(rpc, args);
-  if (error) return report(error, "Nie udało się zapisać wpisu.");
-  showToast(id ? "Wpis został zaktualizowany." : "Wpis został dodany.");
-  resetTransactionForm();
+  event.preventDefault(); el.transactionFormError.textContent = ""; if (!activeStoreId || !requireOnline()) return;
+  const id = el.transactionEditingId.value; const entries = transactionEntriesFromForm(); const validation = validateTransactionEntries(entries, id);
+  if (validation) return el.transactionFormError.textContent = validation;
+  let result;
+  if (id) {
+    const entry = entries[0];
+    result = await db.rpc("update_suspicious_transaction", { target_id: id, target_type: entry.entry_type, target_number: entry.reference_number, target_receipt_date: entry.receipt_date, target_note: entry.note });
+  } else result = await db.rpc("add_suspicious_transactions", { target_entries: entries });
+  if (result.error) return report(result.error, "Nie udało się zapisać wpisów.");
+  showToast(id ? "Wpis został zaktualizowany." : `Dodano ${entries.length} wpisów.`); resetTransactionForm(); await loadData();
+}
+
+function setApplicationInterval(value) {
+  if (value == null) { el.recidivismApplicationInterval.value = ""; el.recidivismApplicationCustomInterval.value = ""; }
+  else if ([7, 14, 21, 28].includes(Number(value))) el.recidivismApplicationInterval.value = String(value);
+  else { el.recidivismApplicationInterval.value = "custom"; el.recidivismApplicationCustomInterval.value = String(value); }
+  el.recidivismApplicationCustomInterval.classList.toggle("hidden", el.recidivismApplicationInterval.value !== "custom");
+}
+
+function updateRecidivismTypeFields() {
+  const application = el.recidivismType.value === "application";
+  el.recidivismNumberField.classList.toggle("hidden", !application); el.recidivismNumber.required = application;
+  el.recidivismApplicationStoresField.classList.toggle("hidden", !application); el.recidivismReceiptRowsField.classList.toggle("hidden", application);
+  if (application) renderReferenceStoreCheckboxes(el.recidivismStoreCheckboxes, el.recidivismSelectedStoresCount, el.recidivismEditingStoreId.value);
+  else if (!el.recidivismReceiptRows.children.length) createReferenceReceiptRow(el.recidivismReceiptRows, { store_id: el.recidivismEditingStoreId.value || activeStoreId }, true, Boolean(el.recidivismEditingId.value));
+}
+
+function resetRecidivismForm() {
+  el.recidivismForm.reset(); el.recidivismEditingId.value = ""; el.recidivismEditingStoreId.value = ""; el.recidivismType.value = "receipt";
+  el.recidivismStoreCheckboxes.replaceChildren(); el.recidivismReceiptRows.replaceChildren(); setApplicationInterval(null);
+  el.recidivismFormTitle.textContent = "Dodaj monitoring"; el.recidivismSubmitButton.textContent = "Dodaj monitoring"; el.recidivismCancelEdit.classList.add("hidden"); el.recidivismFormError.textContent = "";
+  updateRecidivismTypeFields();
+}
+
+function editRecidivismEntry(item) {
+  resetRecidivismForm(); el.recidivismEditingId.value = item.id; el.recidivismEditingStoreId.value = item.store_id; el.recidivismType.value = item.entry_type;
+  el.recidivismNumber.value = item.entry_type === "application" ? item.reference_number : ""; el.recidivismNote.value = item.note || ""; setApplicationInterval(item.interval_override_days);
+  el.recidivismReceiptRows.replaceChildren();
+  if (item.entry_type === "receipt") createReferenceReceiptRow(el.recidivismReceiptRows, item, true, true);
+  el.recidivismFormTitle.textContent = "Edytuj monitoring"; el.recidivismSubmitButton.textContent = "Zapisz zmiany"; el.recidivismCancelEdit.classList.remove("hidden"); el.recidivismFormError.textContent = "";
+  updateRecidivismTypeFields(); el.recidivismForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  (item.entry_type === "application" ? el.recidivismNumber : el.recidivismReceiptRows.querySelector(".reference-number"))?.focus();
+}
+
+function recidivismEntriesFromForm() {
+  const note = el.recidivismNote.value.trim() || null;
+  if (el.recidivismType.value === "application") {
+    const override = readInterval(el.recidivismApplicationInterval, el.recidivismApplicationCustomInterval);
+    const number = el.recidivismNumber.value.trim();
+    return selectedReferenceStores(el.recidivismStoreCheckboxes).map((storeId) => ({ store_id: storeId, entry_type: "application", reference_number: number, receipt_date: null, note, interval_override_days: override }));
+  }
+  return [...el.recidivismReceiptRows.children].map((rowNode) => {
+    const intervalSelect = rowNode.querySelector(".reference-interval");
+    return {
+      store_id: rowNode.querySelector(".reference-store").value,
+      entry_type: "receipt",
+      reference_number: rowNode.querySelector(".reference-number").value.trim(),
+      receipt_date: rowNode.querySelector(".reference-date").value,
+      note,
+      interval_override_days: readInterval(intervalSelect, rowNode.querySelector(".reference-custom-interval")),
+    };
+  });
+}
+
+function validateRecidivismEntries(entries, editingId = "") {
+  if (!entries.length) return "Wybierz co najmniej jeden sklep lub dodaj paragon.";
+  const batchKeys = new Set();
+  for (const entry of entries) {
+    const store = state.stores.find((candidate) => candidate.id === entry.store_id);
+    if (!store || !entry.reference_number) return "Uzupełnij sklep i numer w każdym wpisie.";
+    if (entry.entry_type === "receipt" && (!entry.receipt_date || entry.receipt_date > localDate())) return "Podaj datę każdego paragonu nie późniejszą niż dzisiaj.";
+    const interval = entry.interval_override_days == null ? (store.recidivism_default_interval_days || Math.min(7, store.retention_days)) : entry.interval_override_days;
+    if (!Number.isInteger(interval) || interval < 1 || interval > 365) return "Okres przypomnień musi wynosić od 1 do 365 dni.";
+    if (interval > store.retention_days) return `Okres przypomnień przekracza archiwum sklepu „${store.name}” (${store.retention_days} dni).`;
+    const key = `${entry.store_id}|${entry.entry_type}|${entry.reference_number.toLocaleLowerCase("pl")}`;
+    if (batchKeys.has(key)) return "Ta sama pozycja występuje w formularzu więcej niż raz.";
+    batchKeys.add(key);
+    if (allRecidivismEntries().some((item) => item.id !== editingId && !item.closed_at && `${item.store_id}|${item.entry_type}|${item.reference_number.trim().toLocaleLowerCase("pl")}` === key)) return "Taki aktywny numer już istnieje w jednym z wybranych sklepów.";
+  }
+  return "";
+}
+
+async function submitRecidivismEntry(event) {
+  event.preventDefault(); el.recidivismFormError.textContent = ""; if (!activeStoreId || !requireOnline()) return;
+  const id = el.recidivismEditingId.value; const entries = recidivismEntriesFromForm(); const validation = validateRecidivismEntries(entries, id);
+  if (validation) return el.recidivismFormError.textContent = validation;
+  let result;
+  if (id) {
+    const entry = entries[0];
+    result = await db.rpc("update_recidivism_entry", { target_id: id, target_type: entry.entry_type, target_number: entry.reference_number, target_receipt_date: entry.receipt_date, target_note: entry.note, target_interval_override_days: entry.interval_override_days });
+  } else result = await db.rpc("add_recidivism_entries", { target_entries: entries });
+  if (result.error) return report(result.error, "Nie udało się zapisać monitoringu.");
+  showToast(id ? "Monitoring został zaktualizowany." : `Dodano ${entries.length} monitoringów.`); resetRecidivismForm(); await loadData();
+}
+
+async function checkRecidivismEntry(item) {
+  if (!requireOnline() || !confirm(`Potwierdzić okresową kontrolę numeru „${item.reference_number}”?`)) return;
+  const { data, error } = await db.rpc("check_recidivism_entry", { target_id: item.id });
+  if (error) return report(error, "Nie udało się zapisać kontroli.");
+  const gapDays = Number(data?.gap_days || 0);
+  showToast(gapDays ? `Kontrola zapisana. Uwaga: ${gapDays} dni nie było już dostępnych w archiwum.` : `Kontrola zapisana. Następny termin: ${date(`${data.next_check_date}T12:00:00`)}.`);
   await loadData();
+}
+
+async function closeRecidivismEntry(item) {
+  if (!requireOnline() || !confirm(`Zakończyć monitoring numeru „${item.reference_number}”? Historia pozostanie dostępna.`)) return;
+  const { error } = await db.rpc("close_recidivism_entry", { target_id: item.id });
+  if (error) return report(error, "Nie udało się zakończyć monitoringu.");
+  if (el.recidivismEditingId.value === item.id) resetRecidivismForm(); showToast("Monitoring został zakończony."); await loadData();
+}
+
+async function deleteRecidivismEntry(item) {
+  if (!isAdmin() || !requireOnline() || !confirm(`Trwale usunąć numer „${item.reference_number}” wraz z całą historią kontroli?`)) return;
+  const { error } = await db.rpc("delete_recidivism_entry", { target_id: item.id });
+  if (error) return report(error, "Nie udało się usunąć wpisu.");
+  if (el.recidivismEditingId.value === item.id) resetRecidivismForm(); showToast("Wpis został trwale usunięty."); await loadData();
 }
 
 async function deleteSuspiciousTransaction(item) {
@@ -1203,7 +1567,8 @@ async function maybeShowDailyReminder() {
   const today = localDate();
   const hasInventoryReminder = state.inventories.some((x) => x.store_id === activeStoreId && x.status === "archived" && missingFlags(x.id));
   const hasTransactionReminder = eligibleTransactions().length >= 5;
-  if (!hasInventoryReminder && !hasTransactionReminder) return;
+  const hasRecidivismReminder = dueRecidivismEntries().length > 0;
+  if (!hasInventoryReminder && !hasTransactionReminder && !hasRecidivismReminder) return;
   const checks = await Promise.all([
     hasInventoryReminder
       ? db.from("reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today)
@@ -1211,11 +1576,15 @@ async function maybeShowDailyReminder() {
     hasTransactionReminder
       ? db.from("transaction_reminder_views").select("reminder_date").eq("user_id", user.id).eq("store_id", activeStoreId).eq("reminder_date", today)
       : Promise.resolve({ data: [], error: null }),
+    hasRecidivismReminder
+      ? db.from("recidivism_reminder_views").select("reminder_date").eq("user_id", user.id).eq("reminder_date", today)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (checks.some((result) => result.error)) return;
   const saves = [];
   if (hasInventoryReminder && !checks[0].data.length) saves.push(db.from("reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today }));
   if (hasTransactionReminder && !checks[1].data.length) saves.push(db.from("transaction_reminder_views").insert({ user_id: user.id, store_id: activeStoreId, reminder_date: today }));
+  if (hasRecidivismReminder && !checks[2].data.length) saves.push(db.from("recidivism_reminder_views").insert({ user_id: user.id, reminder_date: today }));
   if (!saves.length) return;
   const saved = await Promise.all(saves);
   if (saved.every((result) => !result.error) && !el.remindersDialog.open) el.remindersDialog.showModal();
@@ -1255,8 +1624,10 @@ async function startScanner() {
 function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.scannerVideo.srcObject?.getTracks().forEach((x) => x.stop()); el.scannerVideo.srcObject = null; if (el.scannerDialog.open) el.scannerDialog.close(); }
 
 el.authForm.onsubmit = authSubmit;
-el.authModeButton.onclick = () => { signupMode = !signupMode; el.displayNameField.classList.toggle("hidden", !signupMode); el.authTitle.textContent = signupMode ? "Załóż konto" : "Zaloguj się"; el.authSubmit.textContent = signupMode ? "Zarejestruj się" : "Zaloguj się"; el.authModeButton.textContent = signupMode ? "Masz konto? Zaloguj się" : "Nie masz konta? Zarejestruj się"; };
-el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; resetTransactionForm(); chooseActive(); renderAll(); maybeShowDailyReminder(); };
+el.authModeButton.onclick = () => setAuthMode(authMode === "signup" ? "signin" : "signup");
+el.forgotPasswordButton.onclick = () => { setAuthMode("request-reset"); el.email.focus(); };
+el.authBackButton.onclick = leavePasswordRecovery;
+el.productForm.onsubmit = submitProduct; el.cancelEditButton.onclick = resetForm; el.undoLastItemButton.onclick = undoLastItem; el.storeSelect.onchange = () => { activeStoreId = el.storeSelect.value; activeInventoryId = null; resetTransactionForm(); resetRecidivismForm(); chooseActive(); renderAll(); maybeShowDailyReminder(); };
 el.storeSearch.oninput = renderStores; el.storeRequestSearch.oninput = renderStoreRequests; el.storeSettingsSearch.oninput = renderSettings; el.adminStoreSearch.oninput = renderAdmin;
 el.openStoreRequestsButton.onclick = () => { renderSettings(); el.settingsDialog.showModal(); el.storeRequestSearch.focus(); };
 el.adminTabs.querySelectorAll("[data-admin-tab]").forEach((tab) => {
@@ -1272,27 +1643,33 @@ el.adminTabs.querySelectorAll("[data-admin-tab]").forEach((tab) => {
     tabs[next].focus();
   };
 });
-el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = deleteArchivedInventory; $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
+el.sessionName.onchange = renameInventory; el.newSessionButton.onclick = newInventory; el.finishSessionButton.onclick = finishInventory; el.cancelSessionButton.onclick = cancelInventory; el.restoreArchiveButton.onclick = restoreArchivedInventory; el.deleteArchiveButton.onclick = () => deleteArchivedInventory(); $("#lookupButton").onclick = resolveEan; el.ean.onchange = resolveEan;
 el.searchInput.oninput = renderInventory; el.categoryFilter.onchange = renderInventory; el.sortSelect.onchange = renderInventory;
 el.shortagesSummaryButton.onclick = openShortagesSummary; el.shortagesSort.onchange = renderShortagesSummary;
 el.inventoryTabButton.onclick = () => { activeView = "inventories"; renderWorkspace(); };
 el.sensitiveTabButton.onclick = () => { activeView = "sensitive"; renderWorkspace(); renderSensitiveProducts(); };
 el.transactionsTabButton.onclick = () => { activeView = "transactions"; renderWorkspace(); renderTransactions(); };
+el.recidivismTabButton.onclick = () => { activeView = "recidivism"; renderWorkspace(); renderRecidivism(); };
 el.sensitiveCheckForm.onsubmit = submitSensitiveCheck; el.sensitiveEan.onchange = resolveSensitiveEan;
 el.transactionForm.onsubmit = submitSuspiciousTransaction;
 el.transactionType.onchange = updateTransactionTypeFields;
-el.transactionDate.onchange = updateTransactionTypeFields;
+el.transactionAddReceiptRow.onclick = () => createReferenceReceiptRow(el.transactionReceiptRows);
 el.transactionCancelEdit.onclick = resetTransactionForm;
+el.recidivismForm.onsubmit = submitRecidivismEntry;
+el.recidivismType.onchange = updateRecidivismTypeFields;
+el.recidivismAddReceiptRow.onclick = () => createReferenceReceiptRow(el.recidivismReceiptRows, {}, true);
+el.recidivismApplicationInterval.onchange = () => el.recidivismApplicationCustomInterval.classList.toggle("hidden", el.recidivismApplicationInterval.value !== "custom");
+el.recidivismCancelEdit.onclick = resetRecidivismForm;
 el.sensitiveAdminForm.onsubmit = saveSensitiveProduct;
 el.sensitiveAdminCancel.onclick = resetSensitiveAdminForm;
 $("#adminAddMembership").onclick = adminAddMembership;
 $("#adminAddCategory").onclick = adminAddCategory;
 $("#adminAddStore").onclick = async () => {
   if (!requireOnline()) return;
-  const name = $("#adminStoreName").value.trim(), retention_days = Number($("#adminRetention").value);
-  if (!name || !Number.isInteger(retention_days) || retention_days < 1 || retention_days > 365) return showToast("Podaj nazwę oraz od 1 do 365 dni.");
+  const name = $("#adminStoreName").value.trim(), retention_days = Number($("#adminRetention").value), recidivism_default_interval_days = Number($("#adminRecidivismInterval").value);
+  if (!name || !Number.isInteger(retention_days) || retention_days < 1 || retention_days > 365 || !Number.isInteger(recidivism_default_interval_days) || recidivism_default_interval_days < 1 || recidivism_default_interval_days > retention_days) return showToast("Podaj nazwę, retencję 1–365 dni i okres Recydywy mieszczący się w retencji.");
   if (state.stores.some((store) => store.name.toLocaleLowerCase("pl") === name.toLocaleLowerCase("pl"))) return showToast("Sklep o tej nazwie już istnieje.");
-  const { error } = await db.from("stores").insert({ name, retention_days, created_by: user.id }); if (error) report(error); else { $("#adminStoreName").value = ""; await loadData(); }
+  const { error } = await db.from("stores").insert({ name, retention_days, recidivism_default_interval_days, created_by: user.id }); if (error) report(error); else { $("#adminStoreName").value = ""; await loadData(); }
 };
 el.settingsButton.onclick = () => { renderAll(); el.settingsDialog.showModal(); }; el.remindersButton.onclick = () => el.remindersDialog.showModal();
 el.adminButton.onclick = () => { adminActiveTab = "stores"; renderAll(); el.adminDialog.showModal(); refreshExpiredInventoryCandidates(); void loadAdminAudit(true); };
@@ -1307,6 +1684,7 @@ $("#logoutButton").onclick = async () => {
   adminRetentionAudit = [];
   adminAuditError = "";
   await db.auth.signOut({ scope: "local" });
+  setAuthMode("signin");
 }; $("#migrateButton").onclick = migrateLegacy; $("#exportBackupButton").onclick = exportBackup; $("#exportCsvButton").onclick = exportCsv;
 $("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => document.getElementById(button.dataset.close).close());
@@ -1314,11 +1692,17 @@ $("#themeButton").onclick = () => { const theme = document.documentElement.datas
 window.addEventListener("online", () => syncEngine.syncPending()); window.addEventListener("offline", renderAll);
 document.documentElement.dataset.theme = localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 el.configWarning.classList.toggle("hidden", configured);
+setAuthMode(passwordRecoveryActive ? "set-password" : "signin");
 if (configured) {
-  db.auth.onAuthStateChange((_event, session) => scheduleAuth(session));
+  db.auth.onAuthStateChange(handleAuthStateChange);
   db.auth.getSession().then(({ data, error }) => {
     if (error) report(error, "Nie udało się odczytać sesji.");
-    else scheduleAuth(data.session);
+    else if (passwordRecoveryActive && !data.session) {
+      passwordRecoveryActive = false;
+      clearPasswordRecoveryUrl();
+      setAuthMode("request-reset");
+      el.authError.textContent = "Link do zmiany hasła jest nieprawidłowy lub wygasł. Wyślij nową wiadomość.";
+    } else if (!passwordRecoveryActive) scheduleAuth(data.session);
   });
 }
 if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("./service-worker.js");

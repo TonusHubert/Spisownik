@@ -498,6 +498,14 @@ textarea {
   font-size: 0.72rem;
 }
 
+.form-success {
+  min-height: 17px;
+  margin-top: 12px;
+  color: var(--success);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .hidden {
   display: none !important;
 }
@@ -1063,10 +1071,12 @@ dialog::backdrop {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
+  overflow-x: auto;
 }
 
 .workspace-tab {
   flex: 1;
+  min-width: max-content;
   padding: 10px 12px;
   border-radius: 9px;
   color: var(--muted);
@@ -1163,6 +1173,32 @@ dialog::backdrop {
 
 .transaction-receipt-row-actions {
   padding-bottom: 1px;
+}
+
+.recidivism-receipt-row {
+  grid-template-columns: minmax(135px, 1fr) minmax(125px, 1fr) minmax(135px, 1fr) minmax(145px, 1fr) auto;
+}
+
+.interval-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.7fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.interval-field label {
+  grid-column: 1 / -1;
+}
+
+.recidivism-history {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+#recidivismDueStatus {
+  color: var(--primary);
+  font-size: 0.76rem;
 }
 
 .transaction-receipt-row-actions .ghost-button {
@@ -1420,7 +1456,7 @@ dialog::backdrop {
 
 .admin-store-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 7rem auto auto;
+  grid-template-columns: minmax(0, 1fr) 7rem 8.5rem auto auto;
   gap: 0.5rem;
   align-items: center;
 }
@@ -1583,6 +1619,10 @@ dialog::backdrop {
     padding: 12px;
   }
 
+  .recidivism-receipt-row {
+    grid-template-columns: 1fr;
+  }
+
   .transaction-receipt-row > * {
     min-width: 0;
   }
@@ -1656,7 +1696,7 @@ dialog::backdrop {
   }
 
   .admin-store-row {
-    grid-template-columns: minmax(0, 1fr) 6rem;
+    grid-template-columns: minmax(0, 1fr) 6rem 7rem;
   }
 
   .admin-store-row button {

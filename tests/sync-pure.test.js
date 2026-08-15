@@ -6,7 +6,7 @@ const { emptyState, upsertLocal, applyOperation, applyPending, operationInventor
 describe("emptyState", () => {
   test("returns object with all expected keys as empty arrays", () => {
     const state = emptyState();
-    for (const key of ["profiles", "stores", "memberships", "categories", "inventories", "items", "catalog", "prices", "sensitiveProducts", "sensitiveChecks", "suspiciousTransactions"]) {
+    for (const key of ["profiles", "stores", "memberships", "categories", "inventories", "items", "catalog", "prices", "sensitiveProducts", "sensitiveChecks", "suspiciousTransactions", "recidivismEntries", "recidivismChecks"]) {
       assert.deepEqual(state[key], []);
     }
   });

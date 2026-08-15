@@ -13,6 +13,7 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 - codzienna kontrola globalnej listy produktów wrażliwych z limitem 2 sztuk na półce, zdjęciami i kodami kreskowymi gotowymi do skanowania,
 - codzienne przypomnienie wewnątrz aplikacji,
 - sklepowa lista numerów paragonów i aplikacji do sprawdzania podejrzanych transakcji,
+- wielosklepowy, cykliczny monitoring „Recydywa” z historią kontroli i okresami zależnymi od retencji sklepu,
 - lokalny cache danych do odczytu bez internetu,
 - jednorazowy import danych z wersji lokalnej oraz eksport JSON i CSV.
 
@@ -24,6 +25,10 @@ Mobilna PWA do współdzielonych spisów produktów. Dane, konta i uprawnienia s
 Jeśli aktualizujesz istniejącą instalację, wykonaj zamiast tego plik `supabase/offline_sync_migration.sql`.
 
 Po aktualizacji istniejącej instalacji wykonaj również plik `supabase/suspicious_transactions_migration.sql`, aby dodać listę podejrzanych transakcji i jej przypomnienia.
+
+Następnie wykonaj `supabase/recidivism_migration.sql`. Migracja dokańcza zbiorcze dodawanie Transakcji oraz dodaje zakładkę Recydywa, domyślny okres kontroli na sklepie, historię weryfikacji i globalne przypomnienia. Migrację uruchom po `suspicious_transactions_migration.sql`.
+
+Na końcu wykonaj `supabase/rpc_repair_migration.sql`. Jest to idempotentna migracja naprawcza odtwarzająca funkcje anulowania i trwałego usuwania spisów oraz zbiorczego dodawania transakcji. Migracja sama odświeża cache schematu PostgREST i może być bezpiecznie uruchomiona ponownie.
 
 Migracja tworzy również publiczny bucket `sensitive-product-images`, dodaje zdjęcia produktów wrażliwych oraz włącza bezpośrednie zarządzanie kategoriami i przypisaniami przez administratora.
 
@@ -52,6 +57,12 @@ window.SPISOWNIK_CONFIG = {
 ```
 
 Klucz `anon` jest przeznaczony do użycia w przeglądarce. Bezpieczeństwo danych zapewniają polityki RLS z migracji SQL. Nigdy nie umieszczaj w aplikacji klucza `service_role`.
+
+### Odzyskiwanie hasła
+
+W **Authentication → URL Configuration** projektu Supabase dodaj do dozwolonych Redirect URLs adres wdrożonej aplikacji oraz adres używany lokalnie, np. `http://localhost:8000/`. Aplikacja wysyła link odzyskiwania na bieżący adres strony bez parametrów i po ustawieniu nowego hasła wraca do ekranu logowania.
+
+Wysyłanie wiadomości odzyskiwania korzysta z konfiguracji poczty Supabase. Dla środowiska produkcyjnego skonfiguruj własny serwer SMTP w ustawieniach Authentication.
 
 ## Uruchomienie lokalne
 
