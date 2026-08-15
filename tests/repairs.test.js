@@ -79,6 +79,8 @@ function createApp() {
         cancelInventory,
         submitSuspiciousTransaction,
         updateTransactionTypeFields,
+        submitRecidivismEntry,
+        updateRecidivismTypeFields,
         getAuthMode: () => authMode,
         getActiveInventoryId: () => activeInventoryId,
         getInventories: () => state.inventories,
@@ -199,10 +201,52 @@ describe("naprawy RPC i interfejsu", () => {
       api.updateTransactionTypeFields();
       window.document.querySelector("#transactionNumber").value = "APP-123";
       for (const checkbox of window.document.querySelectorAll("#transactionStoreCheckboxes input")) checkbox.checked = true;
-      await api.submitSuspiciousTransaction({ preventDefault() {} });
+      const form = window.document.querySelector("#transactionForm");
+      let submitEvents = 0;
+      form.addEventListener("submit", () => { submitEvents += 1; });
+      assert.equal(form.checkValidity(), true);
+      type.value = "receipt";
+      api.updateTransactionTypeFields();
+      assert.equal(form.checkValidity(), false);
+      type.value = "application";
+      api.updateTransactionTypeFields();
+      window.document.querySelector("#transactionNumber").value = "APP-123";
+      for (const checkbox of window.document.querySelectorAll("#transactionStoreCheckboxes input")) checkbox.checked = true;
+      window.document.querySelector("#transactionSubmitButton").click();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(submitEvents, 1);
       const request = calls.rpc.find((call) => call.name === "add_suspicious_transactions");
       assert.deepEqual(Array.from(request.args.target_entries, (entry) => entry.store_id), ["store-1", "store-2"]);
-      assert.ok(request.args.target_entries.every((entry) => entry.entry_type === "application" && entry.reference_number === "APP-123"));
+      assert.ok(request.args.target_entries.every((entry) => entry.entry_type === "application" && entry.reference_number === "APP-123" && entry.receipt_date === null));
+    } finally { dom.window.close(); }
+  });
+
+  test("Recydywa dodaje numer aplikacji przez rzeczywisty submit formularza", async () => {
+    const { dom, window, calls, api } = createApp();
+    try {
+      api.setFixture(transactionFixture());
+      const type = window.document.querySelector("#recidivismType");
+      type.value = "application";
+      api.updateRecidivismTypeFields();
+      window.document.querySelector("#recidivismNumber").value = "APP-REC-123";
+      for (const checkbox of window.document.querySelectorAll("#recidivismStoreCheckboxes input")) checkbox.checked = true;
+      const form = window.document.querySelector("#recidivismForm");
+      let submitEvents = 0;
+      form.addEventListener("submit", () => { submitEvents += 1; });
+      assert.equal(form.checkValidity(), true);
+      type.value = "receipt";
+      api.updateRecidivismTypeFields();
+      assert.equal(form.checkValidity(), false);
+      type.value = "application";
+      api.updateRecidivismTypeFields();
+      window.document.querySelector("#recidivismNumber").value = "APP-REC-123";
+      for (const checkbox of window.document.querySelectorAll("#recidivismStoreCheckboxes input")) checkbox.checked = true;
+      window.document.querySelector("#recidivismSubmitButton").click();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(submitEvents, 1);
+      const request = calls.rpc.find((call) => call.name === "add_recidivism_entries");
+      assert.deepEqual(Array.from(request.args.target_entries, (entry) => entry.store_id), ["store-1", "store-2"]);
+      assert.ok(request.args.target_entries.every((entry) => entry.entry_type === "application" && entry.reference_number === "APP-REC-123" && entry.receipt_date === null));
     } finally { dom.window.close(); }
   });
 

@@ -1527,12 +1527,17 @@ function selectedReferenceStores(container) {
   return [...container.querySelectorAll("input:checked")].map((input) => input.value);
 }
 
+function setReferenceReceiptRowsRequired(container, required) {
+  container.querySelectorAll(".reference-store, .reference-number, .reference-date").forEach((control) => { control.required = required; });
+}
+
 function updateTransactionTypeFields() {
   const application = el.transactionType.value === "application";
   el.transactionNumberField.classList.toggle("hidden", !application);
   el.transactionNumber.required = application;
   el.transactionApplicationStoresField.classList.toggle("hidden", !application);
   el.transactionReceiptRowsField.classList.toggle("hidden", application);
+  setReferenceReceiptRowsRequired(el.transactionReceiptRows, !application);
   if (application) renderReferenceStoreCheckboxes(el.transactionStoreCheckboxes, el.transactionSelectedStoresCount, el.transactionEditingStoreId.value);
   else if (!el.transactionReceiptRows.children.length) createReferenceReceiptRow(el.transactionReceiptRows, { store_id: el.transactionEditingStoreId.value || activeStoreId }, false, Boolean(el.transactionEditingId.value));
 }
@@ -1608,6 +1613,7 @@ function updateRecidivismTypeFields() {
   const application = el.recidivismType.value === "application";
   el.recidivismNumberField.classList.toggle("hidden", !application); el.recidivismNumber.required = application;
   el.recidivismApplicationStoresField.classList.toggle("hidden", !application); el.recidivismReceiptRowsField.classList.toggle("hidden", application);
+  setReferenceReceiptRowsRequired(el.recidivismReceiptRows, !application);
   if (application) renderReferenceStoreCheckboxes(el.recidivismStoreCheckboxes, el.recidivismSelectedStoresCount, el.recidivismEditingStoreId.value);
   else if (!el.recidivismReceiptRows.children.length) createReferenceReceiptRow(el.recidivismReceiptRows, { store_id: el.recidivismEditingStoreId.value || activeStoreId }, true, Boolean(el.recidivismEditingId.value));
 }
