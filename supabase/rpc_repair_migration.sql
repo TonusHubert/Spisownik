@@ -1,39 +1,47 @@
--- Naprawa funkcji RPC wymaganych przez archiwum spisow i zbiorcze dodawanie
--- podejrzanych transakcji. Uruchom po suspicious_transactions_migration.sql.
+-- Idempotentna naprawa RPC spisow i zbiorczego dodawania podejrzanych
+-- transakcji. Uruchom po r3_destructive_operations_migration.sql.
 
-create or replace function public.cancel_inventory(target_inventory uuid)
-returns void language plpgsql security definer set search_path = public
+drop function if exists public.cancel_inventory(uuid);
+drop function if exists public.delete_empty_active_inventory(uuid);
+drop function if exists public.delete_archived_inventory(uuid);
+
+create or replace function public.cancel_inventory(target_inventory uuid, target_reason text)
+returns jsonb language plpgsql security definer set search_path = public
 as $$
-declare target_store uuid;
 begin
-  select store_id into target_store
-  from inventories
-  where id = target_inventory and status = 'active';
-  if target_store is null or not is_approved_member(target_store) then
-    raise exception 'Brak uprawnien';
-  end if;
-  delete from inventories where id = target_inventory;
+  return public.soft_delete_inventory(target_inventory, target_reason);
 end;
 $$;
 
-create or replace function public.delete_archived_inventory(target_inventory uuid)
-returns void language plpgsql security definer set search_path = public
+create or replace function public.delete_archived_inventory(target_inventory uuid, target_reason text)
+returns jsonb language plpgsql security definer set search_path = public
 as $$
-declare target_store uuid; retention integer; archived timestamptz;
+declare
+  inventory_row public.inventories%rowtype;
+  summary jsonb;
 begin
-  select i.store_id, s.retention_days, i.archived_at
-  into target_store, retention, archived
-  from inventories i
-  join stores s on s.id = i.store_id
-  where i.id = target_inventory and i.status = 'archived';
-  if target_store is null or not is_approved_member(target_store) then
-    raise exception 'Brak uprawnien';
+  if not public.is_admin() then raise exception 'Brak uprawnien'; end if;
+  if length(trim(coalesce(target_reason, ''))) not between 1 and 500 then
+    raise exception 'Powod usuniecia jest wymagany';
   end if;
-  if not is_admin() and archived + make_interval(days => retention + 14) > now() then
-    raise exception 'Okres archiwum jeszcze nie minal';
+  select * into inventory_row
+  from inventories
+  where id = target_inventory and status = 'archived' and deleted_at is null
+  for update;
+  if not found then
+    raise exception 'Nie znaleziono aktywnego archiwalnego spisu';
   end if;
+
+  summary := public.preview_inventory_deletion(target_inventory);
+  perform public.record_audit_event(
+    'hard_delete', 'inventory', target_inventory, trim(target_reason),
+    summary || jsonb_build_object('permanently_deleted', true)
+  );
+  perform set_config('app.allow_destructive_operation', 'true', true);
+  perform set_config('app.allow_inventory_status', 'true', true);
   perform set_config('app.allow_inventory_flag', 'true', true);
   delete from inventories where id = target_inventory;
+  return summary || jsonb_build_object('permanently_deleted', true);
 end;
 $$;
 
@@ -64,11 +72,11 @@ begin
 end;
 $$;
 
-revoke all on function public.cancel_inventory(uuid) from public, anon;
-revoke all on function public.delete_archived_inventory(uuid) from public, anon;
+revoke all on function public.cancel_inventory(uuid, text) from public, anon;
+revoke all on function public.delete_archived_inventory(uuid, text) from public, anon;
 revoke all on function public.add_suspicious_transactions(jsonb) from public, anon;
-grant execute on function public.cancel_inventory(uuid) to authenticated;
-grant execute on function public.delete_archived_inventory(uuid) to authenticated;
+grant execute on function public.cancel_inventory(uuid, text) to authenticated;
+grant execute on function public.delete_archived_inventory(uuid, text) to authenticated;
 grant execute on function public.add_suspicious_transactions(jsonb) to authenticated;
 
 notify pgrst, 'reload schema';

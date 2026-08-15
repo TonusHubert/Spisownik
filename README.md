@@ -28,19 +28,25 @@ Po aktualizacji istniejącej instalacji wykonaj również plik `supabase/suspici
 
 Następnie wykonaj `supabase/recidivism_migration.sql`. Migracja dokańcza zbiorcze dodawanie Transakcji oraz dodaje zakładkę Recydywa, domyślny okres kontroli na sklepie, historię weryfikacji i globalne przypomnienia. Migrację uruchom po `suspicious_transactions_migration.sql`.
 
-Na końcu wykonaj `supabase/rpc_repair_migration.sql`. Jest to idempotentna migracja naprawcza odtwarzająca funkcje anulowania i trwałego usuwania spisów oraz zbiorczego dodawania transakcji. Migracja sama odświeża cache schematu PostgREST i może być bezpiecznie uruchomiona ponownie.
+Potem wykonaj `supabase/r3_destructive_operations_migration.sql`, która dodaje audyt, 14-dniowe odzyskiwanie anulowanych danych i blokady nieautoryzowanego fizycznego kasowania.
+
+Na końcu wykonaj `supabase/rpc_repair_migration.sql`. Jest to idempotentna migracja naprawcza, która usuwa stare jednoargumentowe RPC, ustawia odzyskiwalne anulowanie spisu oraz audytowane, trwałe usunięcie archiwalnego spisu dostępne wyłącznie administratorowi. Migracja odświeża cache schematu PostgREST i może być bezpiecznie uruchomiona ponownie.
 
 Migracja tworzy również publiczny bucket `sensitive-product-images`, dodaje zdjęcia produktów wrażliwych oraz włącza bezpośrednie zarządzanie kategoriami i przypisaniami przez administratora.
 
 Przy usunięciu kategorii wszystkie przypisane do niej produkty są automatycznie przenoszone do chronionej kategorii `Inne`.
 
-Migracja udostępnia administratorowi funkcję do bezpiecznego usunięcia wyłącznie pustego aktywnego spisu po UUID:
+Anulowanie aktywnego spisu zawsze wymaga przyczyny i pozostawia dane możliwe do odzyskania przez 14 dni:
 
 ```sql
-select public.delete_empty_active_inventory('UUID-SPISU');
+select public.cancel_inventory('UUID-SPISU', 'powód anulowania');
 ```
 
-Funkcja odrzuci operację, jeśli wskazany spis nie jest aktywny, nie jest pusty albo wykonujący nie jest administratorem. Nie należy usuwać spisów według nazwy ani daty.
+Trwałe usunięcie jest nieodwracalne, dotyczy wyłącznie archiwalnego spisu i wymaga roli administratora. Funkcja atomowo usuwa spis i pozycje, zachowując wpis audytu:
+
+```sql
+select public.delete_archived_inventory('UUID-SPISU', 'powód trwałego usunięcia');
+```
 3. Załóż pierwsze konto w aplikacji, a następnie nadaj mu rolę administratora:
 
 ```sql

@@ -25,6 +25,7 @@ const el = {
   adminMembershipStore: $("#adminMembershipStore"), adminMembershipList: $("#adminMembershipList"), adminPendingRequestList: $("#adminPendingRequestList"), adminPendingRequestEmpty: $("#adminPendingRequestEmpty"), adminCategoryName: $("#adminCategoryName"),
   adminCategoryList: $("#adminCategoryList"), adminRetentionList: $("#adminRetentionList"), adminRetentionSummary: $("#adminRetentionSummary"), adminRetentionEmpty: $("#adminRetentionEmpty"),
   adminTabs: $("#adminTabs"), adminStoresCount: $("#adminStoresCount"), adminEmployeesCount: $("#adminEmployeesCount"), adminPendingCount: $("#adminPendingCount"), adminCategoriesCount: $("#adminCategoriesCount"), adminSensitiveCount: $("#adminSensitiveCount"), adminAuditCount: $("#adminAuditCount"), adminStoresSummary: $("#adminStoresSummary"), adminMembershipSummary: $("#adminMembershipSummary"), adminPendingSummary: $("#adminPendingSummary"), adminCategoriesSummary: $("#adminCategoriesSummary"), adminSensitiveSummary: $("#adminSensitiveSummary"), adminAuditList: $("#adminAuditList"), adminAuditEmpty: $("#adminAuditEmpty"), adminAuditStatus: $("#adminAuditStatus"), adminAuditRefreshButton: $("#adminAuditRefreshButton"), adminRetentionRefreshButton: $("#adminRetentionRefreshButton"),
+  adminDeletedDataList: $("#adminDeletedDataList"), adminDeletedDataEmpty: $("#adminDeletedDataEmpty"), adminDeletedDataStatus: $("#adminDeletedDataStatus"),
   storeSettingsSearch: $("#storeSettingsSearch"), adminStoreSearch: $("#adminStoreSearch"), addPanel: $("#addPanel"), archiveBanner: $("#archiveBanner"),
   archiveStatus: $("#archiveStatus"), restoreArchiveButton: $("#restoreArchiveButton"), deleteArchiveButton: $("#deleteArchiveButton"), finishSessionButton: $("#finishSessionButton"),
   newSessionButton: $("#newSessionButton"), cancelSessionButton: $("#cancelSessionButton"), undoLastItemButton: $("#undoLastItemButton"),
@@ -59,6 +60,10 @@ const el = {
   recidivismDueStat: $("#recidivismDueStat"), recidivismActiveStat: $("#recidivismActiveStat"), recidivismClosedStat: $("#recidivismClosedStat"), recidivismDueStatus: $("#recidivismDueStatus"), recidivismActiveList: $("#recidivismActiveList"), recidivismClosedList: $("#recidivismClosedList"), recidivismActiveEmpty: $("#recidivismActiveEmpty"), recidivismClosedEmpty: $("#recidivismClosedEmpty"),
   recidivismReminderSection: $("#recidivismReminderSection"), recidivismReminderText: $("#recidivismReminderText"), recidivismReminderList: $("#recidivismReminderList"),
   noRemindersText: $("#noRemindersText"),
+  destructiveActionDialog: $("#destructiveActionDialog"), destructiveActionTitle: $("#destructiveActionTitle"), destructiveActionNotice: $("#destructiveActionNotice"), destructiveActionSummary: $("#destructiveActionSummary"),
+  destructiveActionStoreNameField: $("#destructiveActionStoreNameField"), destructiveActionStoreName: $("#destructiveActionStoreName"), destructiveActionReason: $("#destructiveActionReason"),
+  destructiveActionReasonDetailField: $("#destructiveActionReasonDetail"), destructiveActionReasonDetail: $("#destructiveActionReasonDetailInput"),
+  destructiveActionConfirm: $("#destructiveActionConfirm"), destructiveActionCancel: $("#destructiveActionCancel"),
 };
 
 let authMode = "signin";
@@ -75,6 +80,8 @@ let activeView = "inventories";
 let expiredInventories = [];
 let adminActiveTab = "stores";
 let adminRetentionAudit = [];
+let auditLog = [];
+let deletedData = [];
 let adminAuditError = "";
 
 const syncEngine = window.SpisownikSync.createSyncEngine({
@@ -91,7 +98,7 @@ const syncEngine = window.SpisownikSync.createSyncEngine({
 function isAdmin() { return profile?.role === "admin"; }
 function online() { return navigator.onLine && configured; }
 function approvedStoreIds() {
-  return new Set(isAdmin() ? state.stores.map((store) => store.id) : state.memberships.filter((membership) => membership.status === "approved").map((membership) => membership.store_id));
+  return new Set(isAdmin() ? state.stores.filter((store) => !store.deleted_at).map((store) => store.id) : state.memberships.filter((membership) => membership.status === "approved").map((membership) => membership.store_id));
 }
 function membershipForStore(storeId) {
   return state.memberships.find((membership) => membership.store_id === storeId && membership.user_id === user?.id);
@@ -205,14 +212,22 @@ async function query(table, select = "*", filters = []) {
 
 async function loadAdminAudit(silent = false) {
   if (!isAdmin() || !online()) {
-    if (!isAdmin()) adminRetentionAudit = [];
+    if (!isAdmin()) { adminRetentionAudit = []; auditLog = []; deletedData = []; }
     return;
   }
   try {
-    adminRetentionAudit = await query("inventory_retention_audit", "*");
+    const [auditResult, deletedResult] = await Promise.all([
+      db.from("audit_log").select("*").order("occurred_at", { ascending: false }),
+      db.rpc("list_deleted_data"),
+    ]);
+    if (auditResult.error) throw auditResult.error;
+    if (deletedResult.error) throw deletedResult.error;
+    auditLog = auditResult.data || [];
+    deletedData = deletedResult.data || [];
+    adminRetentionAudit = [];
     adminAuditError = "";
   } catch (error) {
-    adminRetentionAudit = [];
+    adminRetentionAudit = []; auditLog = []; deletedData = [];
     adminAuditError = "Nie udało się pobrać historii audytu.";
     if (!silent) report(error, adminAuditError);
   }
@@ -222,7 +237,7 @@ async function loadAdminAudit(silent = false) {
 async function loadData() {
   if (!user) return;
   if (!online()) {
-    adminRetentionAudit = [];
+    adminRetentionAudit = []; auditLog = []; deletedData = [];
     adminAuditError = "";
     const cached = await syncEngine.readSnapshot(user.id);
     if (cached) { state = { ...window.SpisownikSync.emptyState(), ...cached.state }; profile = cached.profile; }
@@ -240,7 +255,7 @@ async function loadData() {
     if (!profile) throw new Error("Nie znaleziono profilu użytkownika. Sprawdź migrację Supabase.");
     if (!isAdmin()) {
       expiredInventories = [];
-      adminRetentionAudit = [];
+      adminRetentionAudit = []; auditLog = []; deletedData = [];
       adminAuditError = "";
     }
     state = { ...window.SpisownikSync.emptyState(), stores, memberships, categories, inventories, catalog, sensitiveProducts };
@@ -454,6 +469,55 @@ function row(title, detail, actions = []) {
     const button = document.createElement("button"); button.type = "button"; button.className = danger ? "danger-button compact" : "ghost-button compact"; button.textContent = label; button.onclick = handler; buttons.append(button);
   }
   wrapper.append(text, buttons); return wrapper;
+}
+
+let destructiveActionResolver = null;
+
+function deletionReason() {
+  const selected = el.destructiveActionReason.value;
+  const detail = el.destructiveActionReasonDetail.value.trim();
+  return selected === "other" ? detail : selected;
+}
+
+function deletionSummary(summary) {
+  const lines = [];
+  if (summary.store_name) lines.push(`Sklep: ${summary.store_name}`);
+  if (summary.inventory_name) lines.push(`Spis: ${summary.inventory_name}`);
+  if (summary.status) lines.push(`Status: ${summary.status === "active" ? "aktywny" : "archiwalny"}`);
+  if (summary.inventory_count !== undefined) lines.push(`Spisy: ${summary.inventory_count} (aktywnych ${summary.active_inventory_count}, archiwalnych ${summary.archived_inventory_count})`);
+  if (summary.item_count !== undefined) lines.push(`Pozycje: ${summary.item_count} (aktywnych ${summary.active_item_count ?? summary.item_count})`);
+  if (summary.quantity_total !== undefined) lines.push(`Sztuki: ${summary.quantity_total}`);
+  if (summary.value_total !== undefined) lines.push(`Wartość: ${money(summary.value_total)}`);
+  if (summary.membership_count !== undefined) lines.push(`Przypisania: ${summary.membership_count}`);
+  if (summary.price_count !== undefined) lines.push(`Ceny sklepowe: ${summary.price_count}`);
+  if (summary.sensitive_check_count !== undefined) lines.push(`Kontrole produktów wrażliwych: ${summary.sensitive_check_count}`);
+  if (summary.transaction_count !== undefined) lines.push(`Podejrzane transakcje: ${summary.transaction_count}`);
+  return lines.join("\n") || "Zakres operacji zostanie ponownie sprawdzony na serwerze.";
+}
+
+function requestDestructiveConfirmation({ title, actionLabel, summary, storeName = "", irreversible = false }) {
+  if (!el.destructiveActionDialog) return Promise.resolve(null);
+  el.destructiveActionTitle.textContent = title;
+  el.destructiveActionNotice.textContent = irreversible
+    ? "Operacja jest nieodwracalna. Spis i jego pozycje zostaną fizycznie usunięte, a wpis audytu pozostanie zachowany."
+    : "Operacja jest odwracalna przez 14 dni. Zakres zostanie ponownie sprawdzony po stronie serwera.";
+  el.destructiveActionSummary.textContent = deletionSummary(summary);
+  el.destructiveActionConfirm.textContent = actionLabel;
+  el.destructiveActionStoreName.value = "";
+  el.destructiveActionStoreName.placeholder = storeName;
+  el.destructiveActionStoreNameField.classList.toggle("hidden", !storeName);
+  el.destructiveActionReason.value = "błąd wpisu";
+  el.destructiveActionReasonDetail.value = "";
+  el.destructiveActionReasonDetailField.classList.add("hidden");
+  el.destructiveActionDialog.showModal();
+  return new Promise((resolve) => { destructiveActionResolver = resolve; });
+}
+
+function finishDestructiveConfirmation(result) {
+  const resolver = destructiveActionResolver;
+  destructiveActionResolver = null;
+  if (el.destructiveActionDialog.open) el.destructiveActionDialog.close();
+  resolver?.(result);
 }
 
 function renderShortagesSummary() {
@@ -683,20 +747,42 @@ function renderAdminAudit() {
     el.adminAuditStatus.textContent = adminAuditError;
     el.adminAuditList.replaceChildren();
     el.adminAuditEmpty.classList.add("hidden");
+    el.adminDeletedDataStatus.textContent = "";
+    el.adminDeletedDataList.replaceChildren();
+    el.adminDeletedDataEmpty.classList.add("hidden");
     return;
   }
-  const entries = [...adminRetentionAudit].sort((a, b) => new Date(b.deleted_at) - new Date(a.deleted_at));
+  const legacyEntries = adminRetentionAudit.map((entry) => ({
+    action: entry.action || "delete",
+    inventory_name: entry.inventory_name || entry.name || "Nieznany rekord",
+    store_name: storeName(entry.store_id),
+    occurred_at: entry.deleted_at,
+    item_count: entry.item_count ?? 0,
+    actor_name: entry.actor_name,
+    deleted_by: entry.deleted_by,
+    reason: entry.reason || "Brak powodu",
+  }));
+  const entries = [...auditLog.map((entry) => ({
+    action: entry.action,
+    inventory_name: entry.metadata?.inventory_name || entry.metadata?.store_name || entry.metadata?.name || entry.entity_type,
+    store_name: entry.metadata?.store_name || (entry.metadata?.store_id ? storeName(entry.metadata.store_id) : "—"),
+    occurred_at: entry.occurred_at,
+    item_count: entry.metadata?.item_count ?? entry.metadata?.active_item_count ?? 0,
+    actor_name: entry.actor_name,
+    deleted_by: entry.actor_id,
+    reason: entry.reason,
+  })), ...legacyEntries].sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
   el.adminAuditStatus.textContent = entries.length
     ? `${entries.length} ${entries.length === 1 ? "wpis w historii" : "wpisów w historii"}.`
-    : "Historia usuniętych archiwów jest dostępna tylko online.";
+    : "Historia operacji usuwania jest dostępna tylko online.";
   el.adminAuditList.replaceChildren(...entries.map((entry) => {
     const operator = state.profiles.find((profileItem) => profileItem.id === entry.deleted_by);
     const cells = [
-      entry.inventory_name || "Nieznany spis",
-      storeName(entry.store_id),
-      dateTime(entry.deleted_at),
-      String(entry.item_count ?? 0),
-      operator?.display_name || operator?.email || "Nieznany użytkownik",
+      `${entry.action} · ${entry.inventory_name}`,
+      entry.store_name || "Nieznany sklep",
+      dateTime(entry.occurred_at),
+      `${String(entry.item_count ?? 0)} · ${entry.reason || "Brak powodu"}`,
+      entry.actor_name || operator?.display_name || operator?.email || "Nieznany użytkownik",
     ];
     const tr = document.createElement("tr");
     cells.forEach((value, index) => {
@@ -708,16 +794,36 @@ function renderAdminAudit() {
     return tr;
   }));
   el.adminAuditEmpty.classList.toggle("hidden", entries.length > 0);
+
+  el.adminDeletedDataStatus.textContent = deletedData.length
+    ? `${deletedData.length} rekordów oczekuje na usunięcie lub przywrócenie.`
+    : "Brak usuniętych danych w okresie odzyskiwania.";
+  el.adminDeletedDataList.replaceChildren(...deletedData.map((entry) => {
+    const typeLabel = entry.entity_type === "store" ? "Sklep" : entry.entity_type === "inventory" ? "Spis" : "Pozycja";
+    const scope = entry.entity_type === "item"
+      ? `${entry.quantity_total || 0} szt. · ${money(entry.value_total)}`
+      : `${entry.item_count || 0} pozycji · ${entry.quantity_total || 0} szt. · ${money(entry.value_total)}`;
+    const deadline = entry.recovery_until ? date(entry.recovery_until) : "—";
+    const actions = entry.can_restore ? [["Przywróć", () => restoreDeletedData(entry)]] : [];
+    return row(
+      `${typeLabel} · ${entry.name}`,
+      `${entry.store_name ? entry.store_name + " · " : ""}${scope} · usunięto ${dateTime(entry.deleted_at)} · odzysk do ${deadline} · ${entry.reason || "brak powodu"} · ${entry.deleted_by || "Nieznany użytkownik"}`,
+      actions,
+    );
+  }));
+  el.adminDeletedDataEmpty.classList.toggle("hidden", deletedData.length > 0);
 }
 
 function renderAdmin() {
   if (!isAdmin()) {
     expiredInventories = [];
     adminRetentionAudit = [];
+    auditLog = [];
+    deletedData = [];
     return;
   }
   const archivedInventories = state.inventories
-    .filter((inventory) => inventory.status === "archived")
+    .filter((inventory) => inventory.status === "archived" && !inventory.deleted_at)
     .sort((a, b) => new Date(a.archived_at) - new Date(b.archived_at));
   const memberships = state.memberships.filter((membership) => membership.status === "approved").sort((a, b) => {
     const first = state.profiles.find((profileItem) => profileItem.id === a.user_id);
@@ -739,7 +845,7 @@ function renderAdmin() {
   el.adminCategoriesSummary.textContent = state.categories.length;
   el.adminSensitiveCount.textContent = state.sensitiveProducts.length;
   el.adminSensitiveSummary.textContent = state.sensitiveProducts.length;
-  el.adminAuditCount.textContent = adminRetentionAudit.length;
+  el.adminAuditCount.textContent = auditLog.length || adminRetentionAudit.length;
 
   el.adminTabs.querySelectorAll("[data-admin-tab]").forEach((tab) => {
     const active = tab.dataset.adminTab === adminActiveTab;
@@ -763,7 +869,7 @@ function renderAdmin() {
     );
   }));
   el.adminRetentionEmpty.classList.toggle("hidden", archivedInventories.length > 0);
-  el.adminStoreList.replaceChildren(...state.stores.filter((x) => storeMatches(x, el.adminStoreSearch.value)).sort(compareStores).map((store) => {
+  el.adminStoreList.replaceChildren(...state.stores.filter((x) => !x.deleted_at && storeMatches(x, el.adminStoreSearch.value)).sort(compareStores).map((store) => {
     const wrapper = document.createElement("form"); wrapper.className = "admin-store-row";
     wrapper.innerHTML = `<input name="name" maxlength="80" required /><input name="retention" type="number" min="1" max="365" required aria-label="Dni archiwum" /><input name="recidivismInterval" type="number" min="1" max="365" required aria-label="Domyślny okres Recydywy" /><button class="ghost-button compact" type="submit">Zapisz</button><button class="danger-button compact" type="button">Usuń</button>`;
     wrapper.elements.name.value = store.name; wrapper.elements.retention.value = store.retention_days; wrapper.elements.recidivismInterval.value = store.recidivism_default_interval_days || Math.min(7, store.retention_days);
@@ -777,7 +883,7 @@ function renderAdmin() {
     .sort((a, b) => (a.display_name || a.email).localeCompare(b.display_name || b.email, "pl"));
   el.adminEmployeeSelect.replaceChildren(new Option("Wybierz pracownika", ""), ...workers.map((worker) => new Option(worker.display_name || worker.email, worker.id)));
   el.adminEmployeeSelect.value = workers.some((worker) => worker.id === selectedEmployee) ? selectedEmployee : "";
-  el.adminMembershipStore.replaceChildren(new Option("Wybierz sklep", ""), ...[...state.stores].sort(compareStores).map((store) => new Option(store.name, store.id)));
+  el.adminMembershipStore.replaceChildren(new Option("Wybierz sklep", ""), ...[...state.stores].filter((store) => !store.deleted_at).sort(compareStores).map((store) => new Option(store.name, store.id)));
   el.adminMembershipStore.value = state.stores.some((store) => store.id === selectedStore) ? selectedStore : "";
   el.adminMembershipList.replaceChildren(...memberships.map((membership) => {
     const worker = state.profiles.find((profileItem) => profileItem.id === membership.user_id);
@@ -907,7 +1013,7 @@ async function onAuth(session) {
     el.savedStatus.textContent = "Pobieranie danych…";
     await loadData();
   } else {
-    profile = null; state = window.SpisownikSync.emptyState(); adminRetentionAudit = []; adminAuditError = ""; syncEngine.reset();
+    profile = null; state = window.SpisownikSync.emptyState(); adminRetentionAudit = []; auditLog = []; deletedData = []; adminAuditError = ""; syncEngine.reset();
   }
 }
 
@@ -1004,7 +1110,26 @@ async function adminEditStore(event, store) {
   if (state.stores.some((item) => item.id !== store.id && item.name.toLocaleLowerCase("pl") === name.toLocaleLowerCase("pl"))) return showToast("Sklep o tej nazwie już istnieje.");
   const { error } = await db.rpc("update_store_settings", { target_store: store.id, target_name: name, target_retention_days: retention, target_recidivism_default_interval_days: recidivismInterval }); if (error) return report(error); await loadData();
 }
-async function adminDeleteStore(store) { if (!requireOnline() || !confirm(`Trwale usunąć sklep „${store.name}” i wszystkie jego dane?`)) return; const { error } = await db.from("stores").delete().eq("id", store.id); if (error) return report(error); await loadData(); }
+async function adminDeleteStore(store) {
+  if (!requireOnline()) return;
+  const summary = await loadDeletionPreview("preview_store_deletion", { target_store: store.id });
+  if (!summary) return;
+  const confirmation = await requestDestructiveConfirmation({
+    title: "Usunięcie sklepu do odzyskania",
+    actionLabel: "Usuń sklep",
+    summary,
+    storeName: store.name,
+  });
+  if (!confirmation) return;
+  const { error } = await db.rpc("soft_delete_store", {
+    target_store: store.id,
+    expected_name: confirmation.expectedName,
+    target_reason: confirmation.reason,
+  });
+  if (error) return report(error);
+  showToast("Sklep został przeniesiony do usuniętych danych.");
+  await loadData();
+}
 
 function openInventory(id) { activeInventoryId = id; renderAll(); if (el.settingsDialog.open) el.settingsDialog.close(); }
 async function finishInventory() {
@@ -1019,33 +1144,26 @@ async function finishInventory() {
 async function cancelInventory() {
   const inventory = activeInventory();
   if (!inventory || inventory.status !== "active" || !requireOnline()) return;
-  if (!confirm(`Anulować spis „${inventory.name}”? Spis i jego pozycje zostaną usunięte.`)) return;
-  if (isAdmin() && activeItems().length === 0) return deleteBrokenEmptyInventory(inventory);
   if ((await syncEngine.queuedOperationsForInventory(inventory.id)).length || syncEngine.syncing) return showToast("Najpierw zsynchronizuj zmiany tego spisu.");
-  const { error } = await db.rpc("cancel_inventory", { target_inventory: inventory.id });
+  const summary = await loadDeletionPreview("preview_inventory_deletion", { target_inventory: inventory.id });
+  if (!summary) return;
+  const confirmation = await requestDestructiveConfirmation({
+    title: "Anulowanie spisu do odzyskania",
+    actionLabel: "Anuluj spis",
+    summary,
+  });
+  if (!confirmation) return;
+  const { error } = await db.rpc("cancel_inventory", { target_inventory: inventory.id, target_reason: confirmation.reason });
   if (error) return report(error);
-  activeInventoryId = null; showToast("Spis został anulowany."); await loadData();
+  activeInventoryId = null;
+  showToast("Spis został anulowany i przeniesiony do usuniętych danych.");
+  await loadData();
 }
 
-async function deleteBrokenEmptyInventory(inventory) {
-  const { data: serverInventory, error: inventoryError } = await db.from("inventories").select("id,status").eq("id", inventory.id).maybeSingle();
-  if (inventoryError) return report(inventoryError, "Nie udało się sprawdzić spisu.");
-  if (!serverInventory) {
-    await syncEngine.discardOperationsForInventory(inventory.id);
-    activeInventoryId = null;
-    showToast("Usunięto lokalny pusty spis.");
-    return loadData();
-  }
-  const { count, error: countError } = await db.from("inventory_items").select("id", { count: "exact", head: true }).eq("inventory_id", inventory.id);
-  if (countError) return report(countError, "Nie udało się sprawdzić pozycji spisu.");
-  if (count !== 0) return showToast("Spis nie jest pusty i nie może zostać usunięty tą operacją.");
-  const rpc = serverInventory.status === "archived" ? "delete_archived_inventory" : "delete_empty_active_inventory";
-  const { error } = await db.rpc(rpc, { target_inventory: inventory.id });
-  if (error) return report(error, "Nie udało się usunąć pustego spisu.");
-  await syncEngine.discardOperationsForInventory(inventory.id);
-  activeInventoryId = null;
-  showToast("Pusty spis został bezpiecznie usunięty.");
-  await loadData();
+async function loadDeletionPreview(rpc, args) {
+  const { data, error } = await db.rpc(rpc, args);
+  if (error) { report(error, "Nie udało się przygotować zakresu usunięcia."); return null; }
+  return data;
 }
 async function setProductFlag(product, assigned) {
   const changed = { ...product, flag_assigned: assigned, updated_at: now() };
@@ -1081,16 +1199,36 @@ async function deleteArchivedInventory(targetInventory = activeInventory()) {
   const inventory = state.inventories.find((item) => item.id === targetInventory?.id)
     || (targetInventory ? { ...targetInventory, status: "archived" } : null);
   if (!inventory || inventory.status !== "archived" || !isAdmin() || !requireOnline()) return;
-  const { deadline, expired } = archiveRetentionInfo(inventory);
-  const warning = expired ? "" : "\n\nUwaga: okres archiwizacji tego spisu jeszcze nie minął.";
-  const confirmation = `Czy na pewno chcesz trwale usunąć spis „${inventory.name}” z dnia ${date(inventory.archived_at)}? Tej operacji nie można cofnąć.${warning}`;
-  if (!confirm(confirmation)) return;
-  const { error } = await db.rpc("delete_archived_inventory", { target_inventory: inventory.id });
+  const summary = await loadDeletionPreview("preview_inventory_deletion", { target_inventory: inventory.id });
+  if (!summary) return;
+  const confirmation = await requestDestructiveConfirmation({
+    title: "Trwałe usunięcie archiwalnego spisu",
+    actionLabel: "Trwale usuń spis",
+    summary,
+    irreversible: true,
+  });
+  if (!confirmation) return;
+  const { error } = await db.rpc("delete_archived_inventory", {
+    target_inventory: inventory.id,
+    target_reason: confirmation.reason,
+  });
   if (error) return report(error);
   if (activeInventoryId === inventory.id) activeInventoryId = null;
-  showToast(`Spis został trwale usunięty. Termin retencji: ${date(deadline)}.`);
+  showToast("Spis został trwale usunięty. Operacji nie można cofnąć.");
   await loadData();
   await refreshExpiredInventoryCandidates(true);
+  await loadAdminAudit(true);
+}
+
+async function restoreDeletedData(entry) {
+  if (!isAdmin() || !requireOnline() || !entry?.can_restore) return;
+  if (!confirm(`Przywrócić ${entry.name}?`)) return;
+  const rpc = `restore_deleted_${entry.entity_type}`;
+  const { error } = await db.rpc(rpc, { [`target_${entry.entity_type}`]: entry.entity_id });
+  if (error) return report(error);
+  showToast("Dane zostały przywrócone.");
+  await loadData();
+  await loadAdminAudit(true);
 }
 
 async function restoreArchivedInventory() {
@@ -1134,21 +1272,42 @@ function editProduct(product) {
   el.addPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   el.ean.focus({ preventScroll: true });
 }
+async function queueItemDeletion(product) {
+  const summary = {
+    store_name: storeName(activeStoreId),
+    inventory_name: activeInventory()?.name,
+    item_count: 1,
+    quantity_total: product.quantity,
+    value_total: Number(product.quantity) * Number(product.price),
+  };
+  const confirmation = await requestDestructiveConfirmation({
+    title: "Usunięcie pozycji do odzyskania",
+    actionLabel: "Usuń pozycję",
+    summary,
+  });
+  if (!confirmation) return;
+  const deletedAt = now();
+  const deleted = {
+    ...product,
+    store_id: activeStoreId,
+    updated_at: deletedAt,
+    deleted_at: deletedAt,
+    deletion_reason: confirmation.reason,
+  };
+  state.items = state.items.filter((item) => item.id !== product.id);
+  resetForm(); renderAll();
+  await syncEngine.enqueue("item_upsert", deleted);
+}
+
 async function deleteProduct(product) {
   if (!canEditInventory()) return;
-  if (!confirm(`Usunąć „${product.name}” ze spisu?`)) return;
-  const deleted = { ...product, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
-  state.items = state.items.filter((item) => item.id !== product.id); resetForm(); renderAll();
-  await syncEngine.enqueue("item_upsert", deleted);
+  await queueItemDeletion(product);
 }
 async function undoLastItem() {
   if (!canEditInventory()) return;
   const last = [...activeItems()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
   if (!last) return showToast("Nie ma pozycji do usunięcia.");
-  if (!confirm(`Usunąć ostatnio dodaną pozycję „${last.name}”?`)) return;
-  const deleted = { ...last, store_id: activeStoreId, updated_at: now(), deleted_at: now() };
-  state.items = state.items.filter((item) => item.id !== last.id); resetForm(); renderAll();
-  await syncEngine.enqueue("item_upsert", deleted);
+  await queueItemDeletion(last);
 }
 
 async function submitProduct(event) {
@@ -1623,6 +1782,24 @@ async function startScanner() {
 }
 function stopScanner() { scannerControls?.stop?.(); scannerControls = null; el.scannerVideo.srcObject?.getTracks().forEach((x) => x.stop()); el.scannerVideo.srcObject = null; if (el.scannerDialog.open) el.scannerDialog.close(); }
 
+el.destructiveActionReason.onchange = () => {
+  const customReason = el.destructiveActionReason.value === "other";
+  el.destructiveActionReasonDetailField.classList.toggle("hidden", !customReason);
+  if (customReason) el.destructiveActionReasonDetail.focus();
+};
+el.destructiveActionCancel.onclick = () => finishDestructiveConfirmation(null);
+el.destructiveActionDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  finishDestructiveConfirmation(null);
+});
+el.destructiveActionConfirm.onclick = () => {
+  const reason = deletionReason();
+  if (!reason) return showToast("Podaj powód operacji.");
+  const storeFieldVisible = !el.destructiveActionStoreNameField.classList.contains("hidden");
+  const expectedName = storeFieldVisible ? el.destructiveActionStoreName.value.trim() : "";
+  if (storeFieldVisible && !expectedName) return showToast("Wpisz dokładną nazwę sklepu.");
+  finishDestructiveConfirmation({ reason, expectedName });
+};
 el.authForm.onsubmit = authSubmit;
 el.authModeButton.onclick = () => setAuthMode(authMode === "signup" ? "signin" : "signup");
 el.forgotPasswordButton.onclick = () => { setAuthMode("request-reset"); el.email.focus(); };
@@ -1677,11 +1854,14 @@ el.adminRetentionRefreshButton.onclick = () => refreshExpiredInventoryCandidates
 el.adminAuditRefreshButton.onclick = () => loadAdminAudit();
 el.syncButton.onclick = () => syncEngine.syncPending();
 $("#logoutButton").onclick = async () => {
+  const userId = user?.id;
+  if (!userId) return setAuthMode("signin");
   const queued = await syncEngine.readQueue();
   if (queued.length && !confirm(`Masz ${queued.length} niewysłanych zmian. Odrzucić je i wylogować się?`)) return;
-  const userId = user.id;
   await syncEngine.clearOfflineData(userId);
   adminRetentionAudit = [];
+  auditLog = [];
+  deletedData = [];
   adminAuditError = "";
   await db.auth.signOut({ scope: "local" });
   setAuthMode("signin");
@@ -1689,7 +1869,8 @@ $("#logoutButton").onclick = async () => {
 $("#scanButton").onclick = startScanner; $("#closeScannerButton").onclick = stopScanner; el.scannerDialog.addEventListener("close", stopScanner);
 document.querySelectorAll("[data-close]").forEach((button) => button.onclick = () => document.getElementById(button.dataset.close).close());
 $("#themeButton").onclick = () => { const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = theme; localStorage.setItem(THEME_KEY, theme); };
-window.addEventListener("online", () => syncEngine.syncPending()); window.addEventListener("offline", renderAll);
+window.addEventListener("online", () => syncEngine.syncPending());
+window.addEventListener("offline", () => { auditLog = []; deletedData = []; renderAll(); });
 document.documentElement.dataset.theme = localStorage.getItem(THEME_KEY) || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 el.configWarning.classList.toggle("hidden", configured);
 setAuthMode(passwordRecoveryActive ? "set-password" : "signin");

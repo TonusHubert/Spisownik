@@ -7,7 +7,7 @@
     <meta name="description" content="Współdzielony mobilny spis produktów." />
     <title>Spisownik</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=21" />
+    <link rel="stylesheet" href="styles.css?v=23" />
   </head>
   <body>
     <header class="topbar">
@@ -275,7 +275,7 @@
 
     <dialog id="destructiveActionDialog">
       <div class="scanner-header"><div><p class="eyebrow">Operacja wymagająca potwierdzenia</p><h2 id="destructiveActionTitle">Usunięcie danych</h2></div></div>
-      <p class="settings-note">Operacja jest odwracalna przez 14 dni. Zakres zostanie ponownie sprawdzony po stronie serwera.</p>
+      <p class="settings-note" id="destructiveActionNotice">Operacja jest odwracalna przez 14 dni. Zakres zostanie ponownie sprawdzony po stronie serwera.</p>
       <pre class="destructive-summary" id="destructiveActionSummary"></pre>
       <label class="hidden" id="destructiveActionStoreNameField">Wpisz dokładną nazwę sklepu<input id="destructiveActionStoreName" maxlength="80" autocomplete="off" /></label>
       <label>Powód operacji
@@ -337,6 +337,6 @@
     <script src="vendor/barcode.js" defer></script>
     <script src="config.js" defer></script>
     <script src="sync.js?v=3" defer></script>
-    <script src="app.js?v=21" defer></script>
+    <script src="app.js?v=23" defer></script>
   </body>
 </html>

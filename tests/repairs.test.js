@@ -11,12 +11,14 @@ const html = readFileSync(join(root, "index.html"), "utf8");
 const syncSource = readFileSync(join(root, "sync.js"), "utf8");
 const appSource = readFileSync(join(root, "app.js"), "utf8");
 const migrationSource = readFileSync(join(root, "supabase", "rpc_repair_migration.sql"), "utf8");
+const r3MigrationSource = readFileSync(join(root, "supabase", "r3_destructive_operations_migration.sql"), "utf8");
+const schemaSource = readFileSync(join(root, "supabase", "schema.sql"), "utf8");
 
 function createApp() {
   const dom = new JSDOM(html, { runScripts: "outside-only", url: "http://localhost:8000/" });
   const { window } = dom;
   const calls = { rpc: [], reset: [], update: [], signOut: [] };
-  const behavior = { resetError: null, updateError: null, signOutError: null };
+  const behavior = { resetError: null, updateError: null, signOutError: null, rpcErrors: {} };
   const authListeners = [];
   const db = {
     auth: {
@@ -26,9 +28,20 @@ function createApp() {
       async signUp() { return { data: { session: null }, error: null }; },
       async resetPasswordForEmail(email, options) { calls.reset.push({ email, options }); return { data: {}, error: behavior.resetError }; },
       async updateUser(attributes) { calls.update.push(attributes); return { data: { user: {} }, error: behavior.updateError }; },
-      async signOut(options) { calls.signOut.push(options); return { error: behavior.signOutError }; },
+      async signOut(options) {
+        calls.signOut.push(options);
+        if (!behavior.signOutError) authListeners.forEach((listener) => listener("SIGNED_OUT", null));
+        return { error: behavior.signOutError };
+      },
     },
-    async rpc(name, args) { calls.rpc.push({ name, args }); return { data: null, error: null }; },
+    async rpc(name, args) {
+      calls.rpc.push({ name, args });
+      if (behavior.rpcErrors[name]) return { data: null, error: behavior.rpcErrors[name] };
+      if (name === "preview_inventory_deletion") return { data: { inventory_id: args.target_inventory, inventory_name: "Spis testowy", store_name: "1000 Sklep", status: "archived", item_count: 1, quantity_total: 2, value_total: 19.98 }, error: null };
+      if (name === "restore_archived_inventory") window.__TEST_RESTORED_ID__ = args.target_inventory;
+      if (name === "cancel_inventory" || name === "delete_archived_inventory") window.__TEST_REMOVED_ID__ = args.target_inventory;
+      return { data: null, error: null };
+    },
   };
 
   window.SPISOWNIK_CONFIG = { supabaseUrl: "https://example.supabase.co", supabaseAnonKey: "anon" };
@@ -43,20 +56,39 @@ function createApp() {
   window.eval(syncSource);
   window.eval(`${appSource}
     {
-      loadData = async () => {};
+      loadData = async () => {
+        if (window.__TEST_RESTORED_ID__) {
+          const restored = state.inventories.find((item) => item.id === window.__TEST_RESTORED_ID__);
+          if (restored) { restored.status = "active"; restored.archived_at = null; }
+          window.__TEST_RESTORED_ID__ = null;
+        }
+        if (window.__TEST_REMOVED_ID__) {
+          state.inventories = state.inventories.filter((item) => item.id !== window.__TEST_REMOVED_ID__);
+          state.items = state.items.filter((item) => item.inventory_id !== window.__TEST_REMOVED_ID__);
+          window.__TEST_REMOVED_ID__ = null;
+        }
+        chooseActive();
+        renderAll();
+      };
       refreshExpiredInventoryCandidates = async () => {};
+      loadAdminAudit = async () => {};
       window.__REPAIRS_TEST__ = {
         authSubmit,
         handleAuthStateChange,
+        restoreArchivedInventory,
+        cancelInventory,
         submitSuspiciousTransaction,
         updateTransactionTypeFields,
         getAuthMode: () => authMode,
+        getActiveInventoryId: () => activeInventoryId,
+        getInventories: () => state.inventories,
         setFixture: (fixture) => {
           user = fixture.user;
           profile = fixture.profile;
           state = { ...window.SpisownikSync.emptyState(), ...fixture.state };
           activeStoreId = fixture.activeStoreId;
           activeInventoryId = fixture.activeInventoryId;
+          scheduledAuthKey = "fixture-session";
           renderAll();
         },
       };
@@ -101,7 +133,7 @@ function transactionFixture() {
 }
 
 describe("naprawy RPC i interfejsu", () => {
-  test("kliknięcie Trwale usuń przekazuje UUID aktywnego archiwum", async () => {
+  test("Trwale usuń pokazuje podsumowanie, wymaga potwierdzenia i wywołuje dwuargumentowe RPC", async () => {
     const { dom, window, calls, api } = createApp();
     try {
       api.setFixture(inventoryFixture());
@@ -109,8 +141,52 @@ describe("naprawy RPC i interfejsu", () => {
       assert.equal(button.classList.contains("hidden"), false);
       button.click();
       await new Promise((resolve) => setImmediate(resolve));
-      assert.equal(calls.rpc[0].name, "delete_archived_inventory");
+      assert.equal(calls.rpc[0].name, "preview_inventory_deletion");
       assert.equal(calls.rpc[0].args.target_inventory, "archive-1");
+      assert.equal(window.document.querySelector("#destructiveActionDialog").hasAttribute("open"), true);
+      assert.match(window.document.querySelector("#destructiveActionNotice").textContent, /nieodwracalna/);
+      assert.match(window.document.querySelector("#destructiveActionSummary").textContent, /Spis testowy/);
+      assert.match(window.document.querySelector("#destructiveActionSummary").textContent, /19,98/);
+      window.document.querySelector("#destructiveActionReason").value = "duplikat";
+      window.document.querySelector("#destructiveActionConfirm").click();
+      await new Promise((resolve) => setImmediate(resolve));
+      const deletion = calls.rpc.find((call) => call.name === "delete_archived_inventory");
+      assert.equal(deletion.args.target_inventory, "archive-1");
+      assert.equal(deletion.args.target_reason, "duplikat");
+      assert.equal(api.getInventories().some((item) => item.id === "archive-1"), false);
+      assert.equal(calls.rpc.some((call) => call.name === "delete_archived_inventory" && !("target_reason" in call.args)), false);
+    } finally { dom.window.close(); }
+  });
+
+  test("przywrócenie archiwum i anulowanie używa odzyskiwalnego RPC bez fizycznej ścieżki", async () => {
+    const { dom, window, calls, api } = createApp();
+    try {
+      api.setFixture(inventoryFixture());
+      await api.restoreArchivedInventory();
+      assert.equal(calls.rpc.find((call) => call.name === "restore_archived_inventory").args.target_inventory, "archive-1");
+      assert.equal(api.getInventories()[0].status, "active");
+
+      const cancellationPromise = api.cancelInventory();
+      for (let attempt = 0; attempt < 40 && !calls.rpc.some((call) => call.name === "preview_inventory_deletion"); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal(calls.rpc.at(-1).name, "preview_inventory_deletion");
+      assert.match(window.document.querySelector("#destructiveActionNotice").textContent, /odwracalna przez 14 dni/);
+      const reason = window.document.querySelector("#destructiveActionReason");
+      reason.value = "other";
+      reason.dispatchEvent(new window.Event("change"));
+      window.document.querySelector("#destructiveActionReasonDetailInput").value = "anulowanie testowego spisu";
+      window.document.querySelector("#destructiveActionConfirm").click();
+      await cancellationPromise;
+
+      const cancellation = calls.rpc.find((call) => call.name === "cancel_inventory");
+      assert.equal(cancellation.args.target_inventory, "archive-1");
+      assert.equal(cancellation.args.target_reason, "anulowanie testowego spisu");
+      assert.equal(calls.rpc.some((call) => call.name === "delete_empty_active_inventory"), false);
+      assert.equal(calls.rpc.some((call) => call.name === "cancel_inventory" && !("target_reason" in call.args)), false);
+      assert.equal(api.getActiveInventoryId(), null);
+      assert.equal(api.getInventories().some((item) => item.id === "archive-1"), false);
+      assert.doesNotMatch(window.document.querySelector("#toast").textContent, /Fizyczne usuwanie jest zablokowane/);
     } finally { dom.window.close(); }
   });
 
@@ -130,19 +206,55 @@ describe("naprawy RPC i interfejsu", () => {
     } finally { dom.window.close(); }
   });
 
-  test("migracja odtwarza RPC, uprawnienia i przeładowuje cache schematu", () => {
+  test("migracja usuwa stare przeciążenia i rozdziela anulowanie od trwałego usunięcia", () => {
+    const normalized = migrationSource.toLocaleLowerCase("pl");
     for (const fragment of [
-      "public.cancel_inventory(target_inventory uuid)",
-      "public.delete_archived_inventory(target_inventory uuid)",
+      "drop function if exists public.cancel_inventory(uuid)",
+      "drop function if exists public.delete_empty_active_inventory(uuid)",
+      "drop function if exists public.delete_archived_inventory(uuid)",
+      "public.cancel_inventory(target_inventory uuid, target_reason text)",
+      "return public.soft_delete_inventory(target_inventory, target_reason)",
+      "public.delete_archived_inventory(target_inventory uuid, target_reason text)",
+      "'hard_delete', 'inventory'",
+      "perform set_config('app.allow_destructive_operation', 'true', true)",
+      "delete from inventories where id = target_inventory",
       "public.add_suspicious_transactions(target_entries jsonb)",
-      "revoke all on function public.cancel_inventory(uuid) from public, anon",
+      "grant execute on function public.cancel_inventory(uuid, text) to authenticated",
+      "grant execute on function public.delete_archived_inventory(uuid, text) to authenticated",
       "grant execute on function public.add_suspicious_transactions(jsonb) to authenticated",
       "notify pgrst, 'reload schema'",
-    ]) assert.match(migrationSource.toLocaleLowerCase("pl"), new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    ]) assert.match(normalized, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(normalized, /create or replace function public\.cancel_inventory\(target_inventory uuid\)\s/);
+    assert.doesNotMatch(normalized, /create or replace function public\.delete_archived_inventory\(target_inventory uuid\)\s/);
+    for (const source of [r3MigrationSource, schemaSource]) {
+      assert.match(source, /'hard_delete', 'inventory'/);
+      assert.match(source, /delete from inventories where id = target_inventory/);
+      assert.match(source, /notify pgrst, 'reload schema'/);
+    }
   });
 });
 
 describe("odzyskiwanie hasła", () => {
+  test("po wylogowaniu pokazuje klikalną opcję Nie pamiętasz hasła", async () => {
+    const { dom, window, calls, api } = createApp();
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      api.setFixture(inventoryFixture());
+      window.document.querySelector("#logoutButton").click();
+      for (let attempt = 0; attempt < 40 && calls.signOut.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(calls.signOut.at(-1).scope, "local");
+      assert.equal(window.document.querySelector("#authView").classList.contains("hidden"), false);
+      const forgot = window.document.querySelector("#forgotPasswordButton");
+      assert.equal(forgot.classList.contains("hidden"), false);
+      forgot.click();
+      assert.equal(api.getAuthMode(), "request-reset");
+      assert.equal(window.document.querySelector("#authTitle").textContent, "Odzyskaj hasło");
+    } finally { dom.window.close(); }
+  });
+
   test("wysyła neutralny link odzyskiwania na bieżący adres aplikacji", async () => {
     const { dom, window, calls, api } = createApp();
     try {
